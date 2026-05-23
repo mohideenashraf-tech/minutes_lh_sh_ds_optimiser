@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.env.*
+.venv/
+venv/
+*.pkl
+ors_route_cache.pkl
+data/uploads/*
+!data/uploads/.gitkeep
+.cursor/
+*.log
+.DS_Store
+Thumbs.db
+app/templates/

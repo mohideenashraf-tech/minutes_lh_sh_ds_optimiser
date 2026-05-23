@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spillover Milkrun Optimizer</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #1a2332 0%, #0f1419 100%);
+    }
+    header h1 { margin: 0; font-size: 1.35rem; font-weight: 600; }
+    header p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.9rem; }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) 1fr;
+      min-height: calc(100vh - 80px);
+    }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+    .left, .right { padding: 1.25rem 1.5rem; overflow: auto; }
+    .left { border-right: 1px solid var(--border); background: var(--panel); }
+    section { margin-bottom: 1.5rem; }
+    section h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    label { display: block; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--muted); }
+    input[type="file"], select, input[type="number"], input[type="time"], input[type="text"].time-input {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    input[type="checkbox"] { margin-right: 0.4rem; }
+    .window-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
+    .window-grid .full { grid-column: 1 / -1; }
+    .fleet-item label { font-size: 0.8rem; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+    button {
+      padding: 0.6rem 1rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+    .status { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; min-height: 1.2em; }
+    .status.error { color: var(--danger); }
+    .status.ok { color: var(--success); }
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+    }
+    .card .val { font-size: 1.4rem; font-weight: 700; }
+    .card .lbl { font-size: 0.75rem; color: var(--muted); margin-top: 0.2rem; }
+    .tabs { display: flex; gap: 0.25rem; margin-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+    .tab {
+      padding: 0.5rem 0.85rem;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
+    tr:hover td { background: rgba(59, 130, 246, 0.06); }
+    .badge { display: inline-block; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+    .badge-direct { background: #1e3a5f; color: #93c5fd; }
+    .badge-pair { background: #422006; color: #fcd34d; }
+    .badge-primary { background: #14532d; color: #86efac; }
+    .badge-adhoc { background: #4c1d95; color: #c4b5fd; }
+    .log-box {
+      background: #0a0e12;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.75rem;
+      max-height: 280px;
+      overflow: auto;
+      white-space: pre-wrap;
+      color: #94a3b8;
+    }
+    .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+    .spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.4rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Spillover Milkrun Optimizer</h1>
+    <p>Source Grid + XD Grid demand · OR-Tools routing · upload CSV or use sample</p>
+  </header>
+
+  <div class="layout">
+    <aside class="left">
+      <section>
+        <h2>Input workbook</h2>
+        <label for="csvFile">Spreadsheet (.csv or .xlsx)</label>
+        <input type="file" id="csvFile" accept=".csv,.xlsx,.xls" />
+        <p class="status" id="fileStatus">Loading…</p>
+        <div class="btn-row">
+          <button type="button" class="btn-secondary" id="useSampleBtn">Use sample CSV</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Source warehouse</h2>
+        <label for="sourceSelect">Source location</label>
+        <select id="sourceSelect"><option value="">Loading sources…</option></select>
+      </section>
+
+      <section>
+        <h2>Fleet sizes</h2>
+        <div class="fleet-grid" id="fleetGrid"></div>
+      </section>
+
+      <section>
+        <h2>Landing windows</h2>
+        <p class="status" style="margin-top:0">Grid demand only — no DBD. All stops use the selected window.</p>
+        <label for="activePart">Planning shift</label>
+        <select id="activePart">
+          <option value="Day">Day</option>
+          <option value="Night">Night</option>
+        </select>
+        <div class="window-grid" style="margin-top:0.75rem">
+          <div>
+            <label for="dayStart">Day start</label>
+            <input type="time" id="dayStart" value="10:00" />
+          </div>
+          <div>
+            <label for="dayEnd">Day end</label>
+            <input type="time" id="dayEnd" value="18:00" />
+          </div>
+          <div>
+            <label for="nightStart">Night start</label>
+            <input type="time" id="nightStart" value="22:00" />
+          </div>
+          <div>
+            <label for="nightEnd">Night end</label>
+            <input type="time" id="nightEnd" value="04:00" />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Filters</h2>
+        <label for="minTotes">Min box count per destination</label>
+        <input type="number" id="minTotes" min="0" value="40" />
+        <label for="maxKm" style="margin-top:0.75rem">Max distance from source (km)</label>
+        <input type="number" id="maxKm" min="10" value="80" />
+      </section>
+
+      <div class="btn-row">
+        <button type="button" class="btn-primary" id="runBtn">Run optimizer</button>
+      </div>
+      <p class="status" id="runStatus"></p>
+    </aside>
+
+    <main class="right">
+      <div id="resultsEmpty" class="empty-state">
+        <p>Choose a source and fleet, then run the optimizer.</p>
+        <p>Routes and schedule will appear here.</p>
+      </div>
+
+      <div id="resultsPanel" style="display:none">
+        <div class="summary-cards" id="summaryCards"></div>
+        <div class="tabs">
+          <button type="button" class="tab active" data-tab="routes">Routes</button>
+          <button type="button" class="tab" data-tab="rotation">Fleet rotation</button>
+          <button type="button" class="tab" data-tab="demand">Demand</button>
+          <button type="button" class="tab" data-tab="log">Processing log</button>
+        </div>
+
+        <div id="panel-routes" class="panel active">
+          <div style="overflow:auto; max-height: calc(100vh - 280px);">
+            <table id="routesTable">
+              <thead>
+                <tr>
+                  <th>#</th><th>Tag</th><th>Type</th><th>Truck</th><th>Route</th>
+                  <th>Dests</th><th>Totes</th><th>VPT</th><th>Dispatch</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="panel-rotation" class="panel">
+          <div style="overflow:auto; max-height: calc(100vh - 280px);">
+            <table id="rotationTable">
+              <thead>
+                <tr>
+                  <th>Truck ID</th><th>Type</th><th>Tag</th><th>Trip type</th>
+                  <th>Route</th><th>VPT</th><th>Return</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="panel-demand" class="panel">
+          <div style="overflow:auto; max-height: calc(100vh - 280px);">
+            <table id="demandTable">
+              <thead><tr><th>Destination</th><th>Box count</th><th>Lat</th><th>Lon</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="panel-log" class="panel">
+          <div class="log-box" id="logBox"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let FLEET_SIZES = [];
+    let uploadId = "sample";
+    const fileStatus = document.getElementById("fileStatus");
+    const sourceSelect = document.getElementById("sourceSelect");
+    const runBtn = document.getElementById("runBtn");
+    const runStatus = document.getElementById("runStatus");
+    const fleetGrid = document.getElementById("fleetGrid");
+
+    function setStatus(el, msg, cls) {
+      el.textContent = msg;
+      el.className = "status" + (cls ? " " + cls : "");
+    }
+
+    function timeToHHMM(input) {
+      if (!input || !input.value) return "00:00";
+      return input.value.length >= 5 ? input.value.slice(0, 5) : input.value;
+    }
+
+    function landingPayload() {
+      return {
+        day_start: timeToHHMM(document.getElementById("dayStart")),
+        day_end: timeToHHMM(document.getElementById("dayEnd")),
+        night_start: timeToHHMM(document.getElementById("nightStart")),
+        night_end: timeToHHMM(document.getElementById("nightEnd")),
+        active_part: document.getElementById("activePart").value,
+      };
+    }
+
+    function setLandingDefaults(landing) {
+      if (!landing) return;
+      document.getElementById("dayStart").value = landing.day_start || "10:00";
+      document.getElementById("dayEnd").value = landing.day_end || "18:00";
+      document.getElementById("nightStart").value = landing.night_start || "22:00";
+      document.getElementById("nightEnd").value = landing.night_end || "04:00";
+      document.getElementById("activePart").value = landing.active_part || "Day";
+    }
+
+    function buildFleetInputs(fleetSizes, defaultFleet) {
+      fleetGrid.innerHTML = "";
+      fleetSizes.forEach(function(ft) {
+        const wrap = document.createElement("div");
+        wrap.className = "fleet-item";
+        const lbl = document.createElement("label");
+        lbl.setAttribute("for", "fleet_" + ft);
+        lbl.textContent = ft;
+        const inp = document.createElement("input");
+        inp.type = "number";
+        inp.id = "fleet_" + ft;
+        inp.min = "0";
+        inp.max = "99";
+        inp.value = String(defaultFleet[ft] != null ? defaultFleet[ft] : 0);
+        wrap.appendChild(lbl);
+        wrap.appendChild(inp);
+        fleetGrid.appendChild(wrap);
+      });
+    }
+
+    async function loadSources() {
+      try {
+        const res = await fetch("/api/sources?upload_id=" + encodeURIComponent(uploadId));
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to load sources");
+        sourceSelect.innerHTML = "";
+        if (!data.sources.length) {
+          sourceSelect.innerHTML = "<option value=\"\">No Source Grid warehouses found</option>";
+          return;
+        }
+        data.sources.forEach(function(s) {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          opt.textContent = s.id + " (" + s.box_count.toLocaleString() + " boxes, " + s.next_stops + " next stops)";
+          sourceSelect.appendChild(opt);
+        });
+      } catch (e) {
+        sourceSelect.innerHTML = "<option value=\"\">Error loading sources</option>";
+        setStatus(fileStatus, e.message, "error");
+      }
+    }
+
+    document.getElementById("useSampleBtn").addEventListener("click", function() {
+      uploadId = "sample";
+      setStatus(fileStatus, "Using bundled sample CSV.", "ok");
+      loadSources();
+    });
+
+    document.getElementById("csvFile").addEventListener("change", async function(ev) {
+      const file = ev.target.files[0];
+      if (!file) return;
+      setStatus(fileStatus, "Uploading…");
+      const fd = new FormData();
+      fd.append("file", file);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Upload failed");
+        uploadId = data.upload_id;
+        setStatus(fileStatus, "Loaded " + data.filename + " (" + data.rows.toLocaleString() + " rows)", "ok");
+        await loadSources();
+      } catch (e) {
+        setStatus(fileStatus, e.message, "error");
+      }
+    });
+
+    document.querySelectorAll(".tab").forEach(function(tab) {
+      tab.addEventListener("click", function() {
+        document.querySelectorAll(".tab").forEach(function(t) { t.classList.remove("active"); });
+        document.querySelectorAll(".panel").forEach(function(p) { p.classList.remove("active"); });
+        tab.classList.add("active");
+        document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+      });
+    });
+
+    function badge(cls, text) {
+      return "<span class=\"badge badge-" + cls + "\">" + text + "</span>";
+    }
+
+    function renderResults(data) {
+      document.getElementById("resultsEmpty").style.display = "none";
+      document.getElementById("resultsPanel").style.display = "block";
+      const s = data.summary;
+      document.getElementById("summaryCards").innerHTML =
+        "<div class=\"card\"><div class=\"val\">" + data.destinations + "</div><div class=\"lbl\">Destinations</div></div>" +
+        "<div class=\"card\"><div class=\"val\">" + Math.round(data.total_box_count).toLocaleString() + "</div><div class=\"lbl\">Box count</div></div>" +
+        "<div class=\"card\"><div class=\"val\">" + (s.primary_trips + s.adhoc_trips) + "</div><div class=\"lbl\">Total trips</div></div>" +
+        "<div class=\"card\"><div class=\"val\">" + s.direct_trips + "</div><div class=\"lbl\">Direct</div></div>" +
+        "<div class=\"card\"><div class=\"val\">" + s.pair_milk_runs + "</div><div class=\"lbl\">Milk runs</div></div>" +
+        "<div class=\"card\"><div class=\"val\">" + s.physical_trucks + "</div><div class=\"lbl\">Trucks used</div></div>";
+
+      const rtBody = document.querySelector("#routesTable tbody");
+      rtBody.innerHTML = "";
+      data.trips.forEach(function(t, i) {
+        const tr = document.createElement("tr");
+        const tag = t.trip_tag === "Ad-Hoc" ? badge("adhoc", "Ad-Hoc") : badge("primary", "Primary");
+        const type = t.type === "Pair" ? badge("pair", "Pair") : badge("direct", "Direct");
+        tr.innerHTML =
+          "<td>" + (i + 1) + "</td><td>" + tag + "</td><td>" + type + "</td>" +
+          "<td>" + (t.truck_type || "") + "</td><td>" + (t.route || "") + "</td>" +
+          "<td>" + (t.dest_count != null ? t.dest_count : "") + "</td><td>" + (t.totes != null ? t.totes : "") + "</td>" +
+          "<td>" + (t.vpt || "") + "</td><td>" + (t.dispatch_from_source || "") + "</td>";
+        rtBody.appendChild(tr);
+      });
+
+      const rotBody = document.querySelector("#rotationTable tbody");
+      rotBody.innerHTML = "";
+      data.fleet_rotation.forEach(function(r) {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + r.physical_truck_id + "</td><td>" + r.fleet_type + "</td>" +
+          "<td>" + (r.trip_tag || "") + "</td><td>" + (r.trip_type || "") + "</td>" +
+          "<td>" + (r.route || "") + "</td><td>" + (r.vpt || "") + "</td><td>" + (r.return_time || "") + "</td>";
+        rotBody.appendChild(tr);
+      });
+
+      const demBody = document.querySelector("#demandTable tbody");
+      demBody.innerHTML = "";
+      (data.demand_preview || []).forEach(function(d) {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + d.id + "</td><td>" + Math.round(d.box_count) + "</td>" +
+          "<td>" + Number(d.lat).toFixed(4) + "</td><td>" + Number(d.lon).toFixed(4) + "</td>";
+        demBody.appendChild(tr);
+      });
+
+      document.getElementById("logBox").textContent = (data.logs || []).join("\n");
+    }
+
+    runBtn.addEventListener("click", async function() {
+      const source = sourceSelect.value;
+      if (!source) {
+        setStatus(runStatus, "Select a source warehouse.", "error");
+        return;
+      }
+      const fleet = {};
+      FLEET_SIZES.forEach(function(ft) {
+        fleet[ft] = parseInt(document.getElementById("fleet_" + ft).value || "0", 10);
+      });
+      runBtn.disabled = true;
+      runStatus.innerHTML = "<span class=\"spinner\"></span> Running OR-Tools solver (may take 1–2 min)…";
+      try {
+        const res = await fetch("/api/optimize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            upload_id: uploadId,
+            source_warehouse: source,
+            fleet: fleet,
+            min_totes: parseFloat(document.getElementById("minTotes").value),
+            max_source_km: parseFloat(document.getElementById("maxKm").value),
+            landing: landingPayload(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Optimization failed");
+        renderResults(data);
+        setStatus(runStatus, "Done — " + (data.summary.primary_trips + data.summary.adhoc_trips) + " trips for " + source + ".", "ok");
+      } catch (e) {
+        setStatus(runStatus, e.message, "error");
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    async function init() {
+      try {
+        const res = await fetch("/api/config");
+        const cfg = await res.json();
+        if (!res.ok) throw new Error(cfg.detail || "Config failed");
+        FLEET_SIZES = cfg.fleet_sizes;
+        buildFleetInputs(cfg.fleet_sizes, cfg.default_fleet);
+        setLandingDefaults(cfg.landing);
+        setStatus(
+          fileStatus,
+          cfg.has_sample
+            ? "Using bundled sample CSV (Live Grid Pendency Raw_1)."
+            : "Upload a Raw_1 format file.",
+          cfg.has_sample ? "ok" : ""
+        );
+        await loadSources();
+      } catch (e) {
+        setStatus(fileStatus, e.message, "error");
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

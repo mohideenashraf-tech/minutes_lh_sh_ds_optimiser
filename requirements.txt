@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+pandas>=2.0
+openpyxl>=3.1
+ortools>=9.9,<9.12
+openrouteservice>=2.3
+pytz>=2024.1
+numpy>=1.26
