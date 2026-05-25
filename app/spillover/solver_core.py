@@ -148,8 +148,8 @@ TAB_WINDOWS  = "Landing Window"
 DBD_PAST_CUTOFF_HRS   = 4    # ignore if DBD is more than this many hours in the past
 DBD_FUTURE_CUTOFF_HRS = 12   # ignore if DBD is more than this many hours in the future
 # ──────────────────────────────────────────────────────────────────────────────
-# ── MINIMUM TOTE THRESHOLD ────────────────────────────────────────────────────
-MIN_TOTES = 40   # destinations with totes equal to or less than this are excluded
+# ── MAXIMUM TOTE THRESHOLD ────────────────────────────────────────────────────
+MAX_TOTES = 40   # destinations with totes above this are excluded (0 = no cap)
 # ──────────────────────────────────────────────────────────────────────────────
 # ── SOURCE DISTANCE FILTER ────────────────────────────────────────────────────
 MAX_SOURCE_KM = 80.0   # destinations further than this from the source are excluded
@@ -249,7 +249,7 @@ def load_live_demand(gc, source_warehouse, df_sources, df_dests, windows):
       - box_final_status == 'Source Grid'
       - source_warehouse == user-selected warehouse
       - dbd within [now_IST - DBD_PAST_CUTOFF_HRS, now_IST + DBD_FUTURE_CUTOFF_HRS]
-      - aggregated totes > MIN_TOTES (destinations with <= MIN_TOTES totes are excluded)
+      - aggregated totes <= MAX_TOTES when MAX_TOTES > 0 (destinations above cap excluded)
     Aggregates by destination_warehouse:
       - volume  = sum of Quantity (units)
       - totes   = volume / 20 (boxes)
@@ -324,14 +324,15 @@ def load_live_demand(gc, source_warehouse, df_sources, df_dests, windows):
     agg['id']           = agg['id'].astype(str).str.strip()
     print(f"   Aggregated to {len(agg)} unique destinations "
           f"| Total boxes: {agg['totes'].sum():.0f}")
-    # ── TOTE FILTER — drop destinations with totes <= MIN_TOTES ───────────────
-    below_min = agg[agg['totes'] <= MIN_TOTES]
-    if not below_min.empty:
-        print(f"   🚫 Dropping {len(below_min)} destination(s) with <= {MIN_TOTES} totes: "
-              f"{below_min['id'].tolist()}")
-    agg = agg[agg['totes'] > MIN_TOTES].copy()
-    if agg.empty:
-        raise ValueError(f"❌ No destinations remain after tote filter (minimum {MIN_TOTES} totes).")
+    # ── TOTE FILTER — drop destinations with totes > MAX_TOTES ────────────────
+    if MAX_TOTES > 0:
+        above_max = agg[agg['totes'] > MAX_TOTES]
+        if not above_max.empty:
+            print(f"   🚫 Dropping {len(above_max)} destination(s) with > {MAX_TOTES} totes: "
+                  f"{above_max['id'].tolist()}")
+        agg = agg[agg['totes'] <= MAX_TOTES].copy()
+        if agg.empty:
+            raise ValueError(f"❌ No destinations remain after tote filter (max {MAX_TOTES} totes).")
     print(f"   ✅ After tote filter: {len(agg)} destinations remain "
           f"| Total boxes: {agg['totes'].sum():.0f}")
     # ──────────────────────────────────────────────────────────────────────────

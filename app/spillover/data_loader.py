@@ -118,7 +118,7 @@ def build_demand(
     source_warehouse: str,
     *,
     max_source_km: float = 80.0,
-    min_totes: float = 40.0,
+    max_totes: float = 40.0,
     dbd_past_cutoff_hrs: float = 4.0,
     dbd_future_cutoff_hrs: float = 12.0,
     landing: LandingWindowConfig | None = None,
@@ -208,13 +208,13 @@ def build_demand(
 
     logs.append(f"Combined grid demand: {len(agg)} destinations | box_count {agg['box_count'].sum():,.0f}")
 
-    if min_totes > 0:
-        below = agg[agg["totes"] <= min_totes]
-        if not below.empty:
-            logs.append(f"Dropped {len(below)} destinations with box_count <= {min_totes}")
-        agg = agg[agg["totes"] > min_totes].copy()
+    if max_totes > 0:
+        above = agg[agg["totes"] > max_totes]
+        if not above.empty:
+            logs.append(f"Dropped {len(above)} destinations with box_count > {max_totes}")
+        agg = agg[agg["totes"] <= max_totes].copy()
         if agg.empty:
-            raise ValueError(f"No destinations after min box filter ({min_totes}).")
+            raise ValueError(f"No destinations after max box filter ({max_totes}).")
 
     df = apply_landing_windows(agg, landing)
     logs.append(f"Delivery windows: {landing.summary()}")

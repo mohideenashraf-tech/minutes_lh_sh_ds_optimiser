@@ -157,8 +157,9 @@
     <p>Source Grid + XD Grid demand · OR-Tools routing · upload CSV or use sample</p>
     <div class="header-filters">
       <div>
-        <label for="minTotes">Min box count per destination</label>
-        <input type="number" id="minTotes" min="0" value="40" />
+        <label for="maxTotes">Max box count per destination</label>
+        <input type="number" id="maxTotes" min="0" value="40" />
+        <p class="status" style="margin:0.25rem 0 0;font-size:0.75rem">Set to 0 to disable. Drops destinations above this count.</p>
       </div>
       <div>
         <label for="dbdPast">DBD — max hours in the past (IST)</label>
@@ -502,7 +503,7 @@
             source_warehouse: source,
             fleet: fleet,
             max_source_km: parseFloat(document.getElementById("maxKm").value),
-            min_totes: parseFloat(document.getElementById("minTotes").value),
+            max_totes: parseFloat(document.getElementById("maxTotes").value),
             dbd_past_cutoff_hrs: parseFloat(document.getElementById("dbdPast").value),
             dbd_future_cutoff_hrs: parseFloat(document.getElementById("dbdFuture").value),
             max_docks: parseInt(document.getElementById("maxDocks").value, 10),
@@ -535,8 +536,8 @@
         if (cfg.default_max_hops != null) {
           document.getElementById("maxHops").value = String(cfg.default_max_hops);
         }
-        if (cfg.default_min_totes != null) {
-          document.getElementById("minTotes").value = String(cfg.default_min_totes);
+        if (cfg.default_max_totes != null) {
+          document.getElementById("maxTotes").value = String(cfg.default_max_totes);
         }
         if (cfg.default_dbd_past_hrs != null) {
           document.getElementById("dbdPast").value = String(cfg.default_dbd_past_hrs);
