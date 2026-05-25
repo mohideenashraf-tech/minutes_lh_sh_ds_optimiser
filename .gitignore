@@ -14,3 +14,5 @@ data/uploads/*
 .DS_Store
 Thumbs.db
 app/templates/
+.venv/
+*.xlsx~

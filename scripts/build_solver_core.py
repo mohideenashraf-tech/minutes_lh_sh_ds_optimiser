@@ -1,6 +1,16 @@
 from pathlib import Path
 
-src = Path(r"C:\Users\mohideen.ashraf\Downloads\spillover_planner_extracted.py").read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[1]
+CANDIDATES = [
+    ROOT / "external" / "spillover_planner_extracted.py",
+    Path(r"C:\Users\mohideen.ashraf\Downloads\spillover_planner_extracted.py"),
+]
+src_path = next((p for p in CANDIDATES if p.exists()), None)
+if src_path is None:
+    raise SystemExit(
+        "Place spillover_planner_extracted.py in external/ or set path in build_solver_core.py"
+    )
+src = src_path.read_text(encoding="utf-8")
 start = src.find("import pandas")
 end = src.find("# ---------------------------------------------------------\n# 6. EXECUTION")
 core = src[start:end]
