@@ -16,9 +16,9 @@ jobs:
           DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "$DEPLOY_HOOK" ]; then
-            echo "::warning::RENDER_DEPLOY_HOOK_URL is not set in GitHub repo secrets."
-            echo "Add it from Render Dashboard → spillover-milkrun-optimizer → Settings → Deploy Hook"
-            exit 1
+            echo "::warning::RENDER_DEPLOY_HOOK_URL is not set — skipping hook."
+            echo "Set the secret from Render → Settings → Deploy Hook, OR use Manual Deploy in Render."
+            exit 0
           fi
           echo "Triggering Render deploy..."
           curl -fsS -X POST "$DEPLOY_HOOK"

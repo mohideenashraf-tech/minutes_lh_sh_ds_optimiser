@@ -32,11 +32,15 @@ Live URL: https://spillover-milkrun-optimizer.onrender.com
 
 ## Verify deploy succeeded
 
-| Check | Expected (new build) |
-|-------|----------------------|
-| https://spillover-milkrun-optimizer.onrender.com/api/ui-version | `has_live_data_section: true` |
-| https://spillover-milkrun-optimizer.onrender.com/api/health | `"data_source": "google_sheets"` |
-| Homepage | **Live data** section, no CSV upload |
+**Browser refresh does not deploy code.** Only Render finishing a new build does.
+
+| Check | Old build (what you see now) | New build |
+|-------|------------------------------|-----------|
+| `/api/health` | `"sample": true`, no `build_id` | `"build_id": "google-sheets-raw1-v2"`, `"data_source": "google_sheets"` |
+| `/api/ui-version` | 404 | JSON with `has_live_data_section: true` |
+| Homepage | Input workbook / CSV upload | **Live data** + Refresh Raw_1 |
+
+If health still shows `"sample": true` after Manual Deploy, the service is linked to the wrong repo/branch or the deploy failed — open **Logs** on Render.
 
 ## Blueprint
 

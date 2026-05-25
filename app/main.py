@@ -24,6 +24,9 @@ DEFAULT_MAX_TOTES = 40.0
 DEFAULT_DBD_PAST_HRS = 4.0
 DEFAULT_DBD_FUTURE_HRS = 12.0
 
+# Bumped when UI/API change — visible in /api/health after deploy
+BUILD_ID = "google-sheets-raw1-v2"
+
 app = FastAPI(title="Spillover Milkrun Optimizer", version="1.1.0")
 
 static_dir = APP_DIR / "static"
@@ -109,9 +112,11 @@ async def health():
     sheets = check_sheets_connection()
     return {
         "ok": sheets.get("ok", False),
+        "build_id": BUILD_ID,
         "data_source": "google_sheets",
         "sheets": sheets,
         "ors_configured": bool(os.environ.get("ORS_API_KEY")),
+        "legacy_deploy": sheets.get("ok") is False and "sample" not in str(sheets),
     }
 
 
