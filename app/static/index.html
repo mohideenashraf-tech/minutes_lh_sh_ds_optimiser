@@ -149,6 +149,27 @@
       margin-right: 0.4rem;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .dock-chart-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .dock-chart-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 1.5rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+    .dock-chart-meta strong { color: var(--text); }
+    .dock-chart-svg { width: 100%; height: auto; max-height: 320px; }
+    .dock-chart-legend { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+    .dock-chart-legend span { display: inline-flex; align-items: center; gap: 0.35rem; margin-right: 1rem; }
+    .dock-legend-line { display: inline-block; width: 24px; height: 0; border-top: 2px dashed #dc2626; }
+    .dock-legend-fill { display: inline-block; width: 12px; height: 12px; background: rgba(37, 99, 235, 0.25); border: 1px solid var(--accent); }
   </style>
 </head>
 <body>
@@ -260,6 +281,7 @@
           <button type="button" class="tab active" data-tab="routes">Routes</button>
           <button type="button" class="tab" data-tab="rotation">Fleet rotation</button>
           <button type="button" class="tab" data-tab="demand">Demand</button>
+          <button type="button" class="tab" data-tab="docks">Dock utilisation</button>
           <button type="button" class="tab" data-tab="log">Processing log</button>
         </div>
 
@@ -297,6 +319,12 @@
               <thead><tr><th>Destination</th><th>Box count</th><th>Lat</th><th>Lon</th></tr></thead>
               <tbody></tbody>
             </table>
+          </div>
+        </div>
+
+        <div id="panel-docks" class="panel">
+          <div id="dockChartPanel" class="dock-chart-wrap">
+            <p class="status">Run the optimizer to see dock utilisation.</p>
           </div>
         </div>
 
@@ -412,6 +440,76 @@
       return "<span class=\"badge badge-" + cls + "\">" + text + "</span>";
     }
 
+    function renderDockChart(util) {
+      const panel = document.getElementById("dockChartPanel");
+      if (!util || !util.bins || !util.bins.length) {
+        panel.innerHTML = "<p class=\"status\">No dock loading intervals in the schedule.</p>";
+        return;
+      }
+      const bins = util.bins;
+      const maxD = util.max_docks || 1;
+      const yMax = Math.max(maxD, util.peak_docks_used || 0, 1);
+      const w = 720;
+      const h = 240;
+      const padL = 36;
+      const padR = 12;
+      const padT = 16;
+      const padB = 36;
+      const plotW = w - padL - padR;
+      const plotH = h - padT - padB;
+      const n = bins.length;
+      const points = bins.map(function(b, i) {
+        const x = padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+        const y = padT + plotH - (b.docks_in_use / yMax) * plotH;
+        return { x: x, y: y, v: b.docks_in_use, label: b.label };
+      });
+      let areaPath = "M " + points[0].x + " " + (padT + plotH);
+      points.forEach(function(p) { areaPath += " L " + p.x + " " + p.y; });
+      areaPath += " L " + points[points.length - 1].x + " " + (padT + plotH) + " Z";
+      let linePath = "M " + points[0].x + " " + points[0].y;
+      for (let i = 1; i < points.length; i++) {
+        linePath += " L " + points[i].x + " " + points[i].y;
+      }
+      const limitY = padT + plotH - (maxD / yMax) * plotH;
+      const xLabels = [];
+      const step = Math.max(1, Math.floor(n / 8));
+      for (let i = 0; i < n; i += step) {
+        xLabels.push(
+          "<text x=\"" + points[i].x + "\" y=\"" + (h - 8) + "\" text-anchor=\"middle\" font-size=\"10\" fill=\"#64748b\">" +
+          points[i].label + "</text>"
+        );
+      }
+      const yTicks = [];
+      for (let v = 0; v <= yMax; v++) {
+        const yy = padT + plotH - (v / yMax) * plotH;
+        yTicks.push(
+          "<line x1=\"" + padL + "\" y1=\"" + yy + "\" x2=\"" + (w - padR) + "\" y2=\"" + yy + "\" stroke=\"#e2e8f0\" stroke-width=\"1\"/>" +
+          "<text x=\"" + (padL - 6) + "\" y=\"" + (yy + 4) + "\" text-anchor=\"end\" font-size=\"10\" fill=\"#64748b\">" + v + "</text>"
+        );
+      }
+      panel.innerHTML =
+        "<div class=\"dock-chart-meta\">" +
+        "<span>Peak: <strong>" + util.peak_docks_used + "</strong> / " + maxD + " docks" +
+        (util.peak_time_label ? " at <strong>" + util.peak_time_label + "</strong>" : "") + "</span>" +
+        "<span>Avg: <strong>" + util.avg_docks_used + "</strong> (" + util.utilization_pct_avg + "%)</span>" +
+        "<span>Peak util: <strong>" + util.utilization_pct_peak + "%</strong></span>" +
+        "</div>" +
+        "<svg class=\"dock-chart-svg\" viewBox=\"0 0 " + w + " " + h + "\" role=\"img\" aria-label=\"Dock utilisation over time\">" +
+        yTicks.join("") +
+        "<line x1=\"" + padL + "\" y1=\"" + limitY + "\" x2=\"" + (w - padR) + "\" y2=\"" + limitY + "\" stroke=\"#dc2626\" stroke-width=\"2\" stroke-dasharray=\"6 4\"/>" +
+        "<path d=\"" + areaPath + "\" fill=\"rgba(37, 99, 235, 0.2)\" stroke=\"none\"/>" +
+        "<path d=\"" + linePath + "\" fill=\"none\" stroke=\"#2563eb\" stroke-width=\"2.5\" stroke-linejoin=\"round\"/>" +
+        xLabels.join("") +
+        "<text x=\"" + (padL + plotW / 2) + "\" y=\"14\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">Time (IST, 15-min bins)</text>" +
+        "<text x=\"12\" y=\"" + (padT + plotH / 2) + "\" transform=\"rotate(-90 12 " + (padT + plotH / 2) + ")\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">Docks in use</text>" +
+        "</svg>" +
+        "<div class=\"dock-chart-legend\">" +
+        "<span><i class=\"dock-legend-fill\"></i> Docks loading (VPT → load complete)</span>" +
+        "<span><i class=\"dock-legend-line\"></i> Max docks limit (" + maxD + ")</span>" +
+        "</div>" +
+        "<p class=\"status\" style=\"margin-top:0.5rem\">Each trip uses one dock from vehicle placement time until loading finishes at the source.</p>";
+    }
+
     function renderResults(data) {
       document.getElementById("resultsEmpty").style.display = "none";
       document.getElementById("resultsPanel").style.display = "block";
@@ -437,7 +535,7 @@
         const type = badge(typeCls, typeLabel);
         tr.innerHTML =
           "<td>" + (i + 1) + "</td><td>" + tag + "</td><td>" + type + "</td>" +
-          "<td>" + (t.truck_type || "") + "</td><td>" + (t.route || "") + "</td>" +
+          "<td>" + (t.truck || t.truck_type || "") + "</td><td>" + (t.route || "") + "</td>" +
           "<td>" + (t.dest_count != null ? t.dest_count : "") + "</td><td>" + (t.totes != null ? t.totes : "") + "</td>" +
           "<td>" + (t.vpt || "") + "</td><td>" + (t.dispatch_from_source || "") + "</td>";
         rtBody.appendChild(tr);
@@ -463,6 +561,8 @@
           "<td>" + Number(d.lat).toFixed(4) + "</td><td>" + Number(d.lon).toFixed(4) + "</td>";
         demBody.appendChild(tr);
       });
+
+      renderDockChart(data.dock_utilization);
 
       document.getElementById("logBox").textContent = (data.logs || []).join("\n");
     }

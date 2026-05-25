@@ -25,7 +25,7 @@ DEFAULT_DBD_PAST_HRS = 4.0
 DEFAULT_DBD_FUTURE_HRS = 12.0
 
 # Bumped when UI/API change — visible in /api/health after deploy
-BUILD_ID = "google-sheets-raw1-v2"
+BUILD_ID = "google-sheets-raw1-v3-dock-chart"
 
 app = FastAPI(title="Spillover Milkrun Optimizer", version="1.1.0")
 

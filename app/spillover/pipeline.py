@@ -11,6 +11,7 @@ import pandas as pd
 
 from app.spillover import solver_core as sc
 from app.spillover.data_loader import build_demand
+from app.spillover.dock_utilization import compute_dock_utilization
 from app.spillover.static_ref import load_static_reference
 
 FLEET_SIZES = ["07FT", "08FT", "10FT", "14FT", "17FT", "20FT", "22FT"]
@@ -104,6 +105,7 @@ def run_optimization(
     logs = demand_logs + [solver_log]
 
     trip_records = _trips_to_records(all_trips)
+    dock_util = compute_dock_utilization(trip_records, max_docks)
     direct_n = sum(1 for t in trip_records if t.get("type") == "Direct")
     pair_n = sum(1 for t in trip_records if t.get("type") == "Pair")
     triple_n = sum(1 for t in trip_records if t.get("type") == "Triple")
@@ -134,6 +136,7 @@ def run_optimization(
         "destinations": int(len(demand)),
         "total_box_count": float(demand["box_count"].sum()),
         "trips": trip_records,
+        "dock_utilization": dock_util,
         "fleet_rotation": rotation,
         "unserviceable": unserviceable,
         "grid_legs": legs.fillna("").astype(str).to_dict(orient="records"),
