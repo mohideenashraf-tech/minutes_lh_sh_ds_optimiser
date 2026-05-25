@@ -116,7 +116,6 @@ async def health():
         "data_source": "google_sheets",
         "sheets": sheets,
         "ors_configured": bool(os.environ.get("ORS_API_KEY")),
-        "legacy_deploy": sheets.get("ok") is False and "sample" not in str(sheets),
     }
 
 
