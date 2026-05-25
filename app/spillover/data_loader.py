@@ -116,7 +116,16 @@ def build_demand(
     dbd_future_cutoff_hrs: float = 12.0,
     landing: LandingWindowConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Build solver demand from Source Grid + XD Grid (live Raw_1 on Google Sheets)."""
+    """
+    Build per-source-warehouse demand from live Raw_1 (Google Sheets).
+
+    Uses box_final_status:
+      - Source Grid: source_warehouse → NextStop / destination_warehouse
+      - XD Grid: NextStop → destination_warehouse (matched to that source's next stops)
+
+    Combines direct SG, SG×XD chained (min boxes per leg), and XD-only paths; then
+    max totes, landing windows, lat/lon, and max distance filters. Solver unchanged.
+    """
     logs: list[str] = []
     landing = landing or DEFAULT_LANDING
 

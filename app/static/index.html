@@ -154,7 +154,7 @@
 <body>
   <header>
     <h1>Spillover Milkrun Optimizer</h1>
-    <p>Source Grid + XD Grid demand · live Google Sheets Raw_1 · OR-Tools routing</p>
+    <p>Demand from Raw_1 (Source Grid + XD Grid per source WH) · live Google Sheets · OR-Tools routing</p>
     <div class="header-filters">
       <div>
         <label for="maxTotes">Max box count per destination</label>
@@ -176,6 +176,7 @@
     <aside class="left">
       <section>
         <h2>Live data</h2>
+        <p class="status" style="margin-top:0;font-size:0.8rem">Raw_1 is read from Google Sheets. Rows flagged Source Grid or XD Grid are pivoted into demand for the source you pick below.</p>
         <p class="status" id="dataStatus">Connecting to Google Sheets…</p>
         <button type="button" class="btn-secondary" id="refreshDataBtn">Refresh Raw_1 from sheet</button>
       </section>
