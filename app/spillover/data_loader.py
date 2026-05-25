@@ -1,32 +1,26 @@
-"""Source Grid + XD Grid demand loading from Raw_1 CSV."""
+"""Source Grid + XD Grid demand loading from live Google Sheets Raw_1 tab."""
 from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import pandas as pd
 import pytz
 
+from app.spillover.gsheets_client import RAW_SHEET, fetch_raw_1
 from app.spillover.landing_windows import DEFAULT_LANDING, LandingWindowConfig, apply_landing_windows
 from app.spillover.static_ref import load_static_reference
 
 IST = pytz.timezone("Asia/Kolkata")
 
 
-def load_raw_file(path: Path) -> pd.DataFrame:
-    path = Path(path)
-    if path.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
-        df = pd.read_excel(path, engine="openpyxl")
-    else:
-        df = pd.read_csv(path, low_memory=False)
-    df.columns = [str(c).strip() for c in df.columns]
-    df["Count_Box_ID"] = pd.to_numeric(df["Count_Box_ID"], errors="coerce").fillna(0)
-    df["Quantity"] = pd.to_numeric(df["Quantity"], errors="coerce").fillna(0)
-    return df
+def load_raw_from_sheets() -> pd.DataFrame:
+    """Load Raw_1 from the configured Google Sheet."""
+    return fetch_raw_1()
 
 
-def list_source_warehouses(df: pd.DataFrame) -> list[dict]:
+def list_source_warehouses(df: pd.DataFrame | None = None) -> list[dict]:
+    df = df if df is not None else load_raw_from_sheets()
     sg = df[df["box_final_status"] == "Source Grid"].copy()
     if sg.empty:
         return []
@@ -114,7 +108,6 @@ def pivot_xd_grid(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_demand(
-    path: Path,
     source_warehouse: str,
     *,
     max_source_km: float = 80.0,
@@ -123,12 +116,12 @@ def build_demand(
     dbd_future_cutoff_hrs: float = 12.0,
     landing: LandingWindowConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Build solver demand from Source Grid + XD Grid (Raw_1 format CSV)."""
+    """Build solver demand from Source Grid + XD Grid (live Raw_1 on Google Sheets)."""
     logs: list[str] = []
     landing = landing or DEFAULT_LANDING
 
-    df_raw = load_raw_file(path)
-    logs.append(f"Loaded {len(df_raw):,} rows from {path.name}")
+    df_raw = load_raw_from_sheets()
+    logs.append(f"Loaded {len(df_raw):,} rows from Google Sheet tab '{RAW_SHEET}'")
     df_raw = filter_rows_by_dbd_window(df_raw, dbd_past_cutoff_hrs, dbd_future_cutoff_hrs, logs)
     if df_raw.empty:
         raise ValueError("No rows remain after DBD filter.")

@@ -154,7 +154,7 @@
 <body>
   <header>
     <h1>Spillover Milkrun Optimizer</h1>
-    <p>Source Grid + XD Grid demand · OR-Tools routing · upload CSV or use sample</p>
+    <p>Source Grid + XD Grid demand · live Google Sheets Raw_1 · OR-Tools routing</p>
     <div class="header-filters">
       <div>
         <label for="maxTotes">Max box count per destination</label>
@@ -175,13 +175,9 @@
   <div class="layout">
     <aside class="left">
       <section>
-        <h2>Input workbook</h2>
-        <label for="csvFile">Spreadsheet (.csv or .xlsx)</label>
-        <input type="file" id="csvFile" accept=".csv,.xlsx,.xls" />
-        <p class="status" id="fileStatus">Loading…</p>
-        <div class="btn-row">
-          <button type="button" class="btn-secondary" id="useSampleBtn">Use sample CSV</button>
-        </div>
+        <h2>Live data</h2>
+        <p class="status" id="dataStatus">Connecting to Google Sheets…</p>
+        <button type="button" class="btn-secondary" id="refreshDataBtn">Refresh Raw_1 from sheet</button>
       </section>
 
       <section>
@@ -312,8 +308,7 @@
 
   <script>
     let FLEET_SIZES = [];
-    let uploadId = "sample";
-    const fileStatus = document.getElementById("fileStatus");
+    const dataStatus = document.getElementById("dataStatus");
     const sourceSelect = document.getElementById("sourceSelect");
     const runBtn = document.getElementById("runBtn");
     const runStatus = document.getElementById("runStatus");
@@ -370,7 +365,7 @@
 
     async function loadSources() {
       try {
-        const res = await fetch("/api/sources?upload_id=" + encodeURIComponent(uploadId));
+        const res = await fetch("/api/sources");
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to load sources");
         sourceSelect.innerHTML = "";
@@ -386,31 +381,18 @@
         });
       } catch (e) {
         sourceSelect.innerHTML = "<option value=\"\">Error loading sources</option>";
-        setStatus(fileStatus, e.message, "error");
+        setStatus(dataStatus, e.message, "error");
       }
     }
 
-    document.getElementById("useSampleBtn").addEventListener("click", function() {
-      uploadId = "sample";
-      setStatus(fileStatus, "Using bundled sample CSV.", "ok");
-      loadSources();
-    });
-
-    document.getElementById("csvFile").addEventListener("change", async function(ev) {
-      const file = ev.target.files[0];
-      if (!file) return;
-      setStatus(fileStatus, "Uploading…");
-      const fd = new FormData();
-      fd.append("file", file);
+    document.getElementById("refreshDataBtn").addEventListener("click", async function() {
+      setStatus(dataStatus, "Refreshing Raw_1 from Google Sheets…");
       try {
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Upload failed");
-        uploadId = data.upload_id;
-        setStatus(fileStatus, "Loaded " + data.filename + " (" + data.rows.toLocaleString() + " rows)", "ok");
+        await fetch("/api/refresh-data", { method: "POST" });
         await loadSources();
+        setStatus(dataStatus, "Raw_1 refreshed.", "ok");
       } catch (e) {
-        setStatus(fileStatus, e.message, "error");
+        setStatus(dataStatus, e.message, "error");
       }
     });
 
@@ -499,7 +481,6 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            upload_id: uploadId,
             source_warehouse: source,
             fleet: fleet,
             max_source_km: parseFloat(document.getElementById("maxKm").value),
@@ -545,16 +526,24 @@
         if (cfg.default_dbd_future_hrs != null) {
           document.getElementById("dbdFuture").value = String(cfg.default_dbd_future_hrs);
         }
-        setStatus(
-          fileStatus,
-          cfg.has_sample
-            ? "Using bundled sample CSV (Live Grid Pendency Raw_1)."
-            : "Upload a Raw_1 format file.",
-          cfg.has_sample ? "ok" : ""
-        );
+        const sheet = cfg.sheets || {};
+        if (sheet.ok) {
+          const title = sheet.spreadsheet_title ? " — " + sheet.spreadsheet_title : "";
+          setStatus(
+            dataStatus,
+            "Connected to Google Sheets tab \"" + (cfg.raw_sheet || "Raw_1") + "\"" + title + ".",
+            "ok"
+          );
+        } else {
+          setStatus(
+            dataStatus,
+            sheet.error || "Google Sheets not configured on server (GOOGLE_SERVICE_ACCOUNT_JSON).",
+            "error"
+          );
+        }
         await loadSources();
       } catch (e) {
-        setStatus(fileStatus, e.message, "error");
+        setStatus(dataStatus, e.message, "error");
       }
     }
 

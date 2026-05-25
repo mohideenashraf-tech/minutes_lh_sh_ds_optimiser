@@ -17,4 +17,6 @@ services:
         value: "50"
       - key: ORS_API_KEY
         sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
     autoDeploy: true

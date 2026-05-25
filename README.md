@@ -1,6 +1,6 @@
 # Minutes LH / SH / DS Optimiser
 
-Spillover milk-run optimizer: **Source Grid + XD Grid** demand from Raw_1 CSV, OR-Tools routing, web UI.
+Spillover milk-run optimizer: **Source Grid + XD Grid** demand from live **Google Sheets Raw_1**, OR-Tools routing, web UI.
 
 ## Repository
 
@@ -15,7 +15,8 @@ minutes-lh-sh-ds-optimiser/
 │   ├── main.py               # Routes & API
 │   ├── static/index.html     # Web UI
 │   └── spillover/            # Solver & demand engine
-│       ├── data_loader.py    # Source Grid + XD Grid logic
+│       ├── gsheets_client.py # Google Sheets API (Raw_1 + static ref)
+│       ├── data_loader.py    # Source Grid + XD Grid pivots from Raw_1
 │       ├── landing_windows.py
 │       ├── pipeline.py
 │       ├── solver_core.py    # OR-Tools (regenerate via scripts/)
@@ -23,7 +24,7 @@ minutes-lh-sh-ds-optimiser/
 ├── data/
 │   ├── sample.csv            # Bundled Raw_1 sample (~12 MB)
 │   ├── static_reference_cache.xlsx
-│   └── uploads/              # Runtime uploads (gitignored)
+│   └── uploads/              # Legacy (unused; sheets-only)
 ├── scripts/
 │   ├── build_solver_core.py  # Patch solver from spillover_planner_extracted.py
 │   └── fix_html.py
@@ -51,8 +52,13 @@ Open http://127.0.0.1:8002
 
 | Variable | Description |
 |----------|-------------|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | **Required on Render.** Full JSON for a Google service account with read access to both spreadsheets |
+| `SPILLOVER_SHEET_URL` | Raw_1 workbook URL (optional; has default) |
+| `SPILLOVER_STATIC_SHEET_URL` | Static lat/lon workbook URL (optional; has default) |
 | `ORS_API_KEY` | OpenRouteService key (optional; Haversine fallback) |
 | `SPILLOVER_MAX_PAIR_API_CALLS` | Max pair ORS calls (default 300 local, 50 on Render) |
+
+Share both Google Sheets with the service account email (`client_email` in the JSON).
 
 ## Regenerate solver core
 

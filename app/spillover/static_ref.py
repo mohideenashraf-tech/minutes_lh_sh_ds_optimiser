@@ -1,10 +1,13 @@
-"""Static lat/lon reference (cache xlsx or built from CSV)."""
+"""Static lat/lon reference from Google Sheets (optional local cache for offline dev)."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 import pandas as pd
+
+from app.spillover.gsheets_client import fetch_static_reference, sheets_configured
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_CACHE = PROJECT_ROOT / "data" / "static_reference_cache.xlsx"
@@ -96,12 +99,26 @@ def build_cache_from_csv(csv_path: Path) -> None:
 
 
 def load_static_reference() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    if sheets_configured():
+        try:
+            return fetch_static_reference()
+        except Exception as exc:
+            if os.environ.get("SPILLOVER_ALLOW_STATIC_CACHE_FALLBACK", "").lower() not in (
+                "1",
+                "true",
+                "yes",
+            ):
+                raise RuntimeError(f"Could not load static reference from Google Sheets: {exc}") from exc
+
     if not STATIC_CACHE.exists():
         sample = PROJECT_ROOT / "data" / "sample.csv"
         if sample.exists():
             build_cache_from_csv(sample)
         else:
-            raise FileNotFoundError(f"Static reference missing: {STATIC_CACHE}")
+            raise FileNotFoundError(
+                "Google Sheets credentials not configured and no static_reference_cache.xlsx. "
+                "Set GOOGLE_SERVICE_ACCOUNT_JSON and share both spreadsheets with the service account."
+            )
     df_sources = pd.read_excel(STATIC_CACHE, sheet_name="Sources", engine="openpyxl")
     df_dests = pd.read_excel(STATIC_CACHE, sheet_name="Destinations", engine="openpyxl")
     windows_df = pd.read_excel(STATIC_CACHE, sheet_name="Landing_Window", engine="openpyxl")

@@ -7,3 +7,5 @@ ortools>=9.9,<9.12
 openrouteservice>=2.3
 pytz>=2024.1
 numpy>=1.26
+gspread>=6.0
+google-auth>=2.28

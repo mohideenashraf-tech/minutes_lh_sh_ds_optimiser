@@ -133,16 +133,18 @@ ORS_PROFILE = 'driving-car'
 # ==========================================
 # 📋 GOOGLE SHEET CONFIGURATION
 # ==========================================
-# Paste your Google Sheet URL below.
-# The sheet must have a tab named exactly: Raw_1
-SHEET_URL  = "https://docs.google.com/spreadsheets/d/1EQ377yHq2C-KP5CBqtRy_IIewnYViiPsX0yFpjvZH8Y/edit"
-RAW_SHEET   = "Raw_1"
-# Static reference sheet — sources, destinations lat/long, and time windows
-STATIC_SHEET_URL = "https://docs.google.com/spreadsheets/d/11nQJuyaxgIbyXosw9MswdDfcfNalMATDeHvWhceTHrw/edit"
-# Tab names in the static reference sheet
-TAB_SOURCES  = "Sources"
-TAB_DESTS    = "Destinations"
-TAB_WINDOWS  = "Landing Window"
+# Sheet URLs and tab names (shared with web app — see gsheets_client.py)
+from app.spillover.gsheets_client import (  # noqa: E402
+    RAW_SHEET,
+    SHEET_URL,
+    STATIC_SHEET_URL,
+    TAB_DESTS,
+    TAB_SOURCES,
+    TAB_WINDOWS,
+    fetch_raw_1,
+    get_gspread_client,
+    worksheet_to_dataframe,
+)
 # ==========================================
 # ── DBD WINDOW (hours from now in IST) ────────────────────────────────────────
 DBD_PAST_CUTOFF_HRS   = 4    # ignore if DBD is more than this many hours in the past
@@ -236,11 +238,9 @@ def prompt_fleet_input():
 # 2c. LIVE GOOGLE SHEETS LOADER
 # ---------------------------------------------------------
 def authenticate_gsheets():
-    """Authenticate with Google using Colab credentials. Call once per session."""
-    print("\n🔐 Authenticating with Google Sheets...")
-    colab_auth.authenticate_user()
-    creds, _ = google_default()
-    gc = gspread.authorize(creds)
+    """Return authorized gspread client (service account or application default credentials)."""
+    print("\n🔐 Connecting to Google Sheets...")
+    gc = get_gspread_client()
     print("✅ Google Sheets authenticated.")
     return gc
 def load_live_demand(gc, source_warehouse, df_sources, df_dests, windows):
@@ -259,24 +259,8 @@ def load_live_demand(gc, source_warehouse, df_sources, df_dests, windows):
     Returns a df compatible with solve_with_ortools().
     """
     print(f"\n📡 Fetching live data from Google Sheets (sheet: {RAW_SHEET})...")
-    sh  = gc.open_by_url(SHEET_URL)
-    ws  = sh.worksheet(RAW_SHEET)
-    # Use get_values() to avoid duplicate header error (e.g. two 'Flag' columns)
-    all_vals = ws.get_values()
-    headers  = all_vals[0]
-    # Deduplicate headers by appending _1, _2 etc for repeats
-    seen = {}
-    deduped = []
-    for h in headers:
-        if h in seen:
-            seen[h] += 1
-            deduped.append(f'{h}_{seen[h]}')
-        else:
-            seen[h] = 0
-            deduped.append(h)
-    df_raw = pd.DataFrame(all_vals[1:], columns=deduped)
+    df_raw = fetch_raw_1(use_cache=False)
     print(f"   Fetched {len(df_raw)} rows.")
-    df_raw.columns = [str(c).strip() for c in df_raw.columns]
     # Filter to Source Grid only
     df_raw = df_raw[df_raw['box_final_status'] == 'Source Grid'].copy()
     print(f"   Source Grid rows: {len(df_raw)}")
@@ -392,21 +376,7 @@ def prompt_source_warehouse(gc):
     print("🏭  SOURCE WAREHOUSE SELECTION")
     print("   Reading sheet... (this may take a moment)")
     print("="*52)
-    sh  = gc.open_by_url(SHEET_URL)
-    ws  = sh.worksheet(RAW_SHEET)
-    all_vals = ws.get_values()
-    headers  = all_vals[0]
-    seen = {}
-    deduped = []
-    for h in headers:
-        if h in seen:
-            seen[h] += 1
-            deduped.append(f'{h}_{seen[h]}')
-        else:
-            seen[h] = 0
-            deduped.append(h)
-    df_all = pd.DataFrame(all_vals[1:], columns=deduped)
-    df_all.columns = [str(c).strip() for c in df_all.columns]
+    df_all = fetch_raw_1(use_cache=False)
     # Only look at Source Grid rows
     df_sg = df_all[df_all['box_final_status'] == 'Source Grid'].copy()
     # Build source → destination count mapping
@@ -448,29 +418,10 @@ def load_static_reference(gc):
       df_dests   — DataFrame: id, lat, lon
       windows    — dict e.g. {'Day': ('10:00', '18:00'), 'Night': ('22:00', '04:00')}
     """
+    from app.spillover.gsheets_client import fetch_static_reference
+
     print("\n📍 Loading static reference data (lat/long + windows)...")
-    sh = gc.open_by_url(STATIC_SHEET_URL)
-    # ── Sources tab ───────────────────────────────────────────────────────────
-    ws_src  = sh.worksheet(TAB_SOURCES)
-    rows    = ws_src.get_values()[1:]   # skip header row
-    df_sources = pd.DataFrame(rows, columns=['id', 'lat', 'lon'])
-    df_sources['lat'] = pd.to_numeric(df_sources['lat'], errors='coerce')
-    df_sources['lon'] = pd.to_numeric(df_sources['lon'], errors='coerce')
-    df_sources['id']  = df_sources['id'].astype(str).str.strip()
-    # ── Destinations tab ──────────────────────────────────────────────────────
-    ws_dst  = sh.worksheet(TAB_DESTS)
-    rows    = ws_dst.get_values()[1:]
-    df_dests = pd.DataFrame(rows, columns=['id', 'lat', 'lon'])
-    df_dests['lat'] = pd.to_numeric(df_dests['lat'], errors='coerce')
-    df_dests['lon'] = pd.to_numeric(df_dests['lon'], errors='coerce')
-    df_dests['id']  = df_dests['id'].astype(str).str.strip()
-    # ── Landing Window tab ────────────────────────────────────────────────────
-    ws_win  = sh.worksheet(TAB_WINDOWS)
-    rows    = ws_win.get_values()[1:]   # Part | Window Start | Window End
-    windows = {}
-    for row in rows:
-        if len(row) >= 3 and row[0].strip():
-            windows[row[0].strip()] = (row[1].strip(), row[2].strip())
+    df_sources, df_dests, windows = fetch_static_reference()
     print(f"   ✅ {len(df_sources)} sources | {len(df_dests)} destinations | "
           f"windows: {list(windows.keys())}")
     return df_sources, df_dests, windows

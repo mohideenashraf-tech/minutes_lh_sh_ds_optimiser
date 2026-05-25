@@ -1,28 +1,21 @@
-"""Spillover milk-run web app (Source Grid + XD Grid)."""
+"""Spillover milk-run web app (Source Grid + XD Grid via Google Sheets)."""
 from __future__ import annotations
 
 import json
 import os
-import uuid
 from pathlib import Path
-from typing import Any
 
-import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.spillover.data_loader import list_source_warehouses, load_raw_file
+from app.spillover.data_loader import list_source_warehouses
+from app.spillover.gsheets_client import RAW_SHEET, check_sheets_connection, invalidate_raw_cache, sheets_configured
 from app.spillover.landing_windows import DEFAULT_LANDING, from_api_dict
 from app.spillover.pipeline import FLEET_SIZES, run_optimization
-from app.spillover.static_ref import STATIC_CACHE, build_cache_from_csv
 
 APP_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = APP_DIR.parent
-DATA_DIR = PROJECT_ROOT / "data"
-UPLOAD_DIR = DATA_DIR / "uploads"
-SAMPLE_CSV = DATA_DIR / "sample.csv"
 
 DEFAULT_FLEET = {"07FT": 9, "08FT": 9, "10FT": 9, "14FT": 9, "17FT": 0, "20FT": 0, "22FT": 0}
 DEFAULT_MAX_DOCKS = 9
@@ -31,34 +24,12 @@ DEFAULT_MAX_TOTES = 40.0
 DEFAULT_DBD_PAST_HRS = 4.0
 DEFAULT_DBD_FUTURE_HRS = 12.0
 
-app = FastAPI(title="Spillover Milkrun Optimizer", version="1.0.0")
+app = FastAPI(title="Spillover Milkrun Optimizer", version="1.1.0")
 
 static_dir = APP_DIR / "static"
 INDEX_HTML = static_dir / "index.html"
 static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def _ensure_sample() -> Path:
-    """Ensure bundled sample + static cache exist (production has no local Downloads path)."""
-    if not STATIC_CACHE.exists() and SAMPLE_CSV.exists():
-        build_cache_from_csv(SAMPLE_CSV)
-    return SAMPLE_CSV
-
-
-def _resolve_csv(upload_id: str | None) -> Path:
-    if upload_id in (None, "", "sample"):
-        path = _ensure_sample()
-        if not path.exists():
-            raise HTTPException(404, "Sample CSV not found. Upload a file first.")
-        return path
-    path = UPLOAD_DIR / f"{upload_id}.csv"
-    if not path.exists():
-        raise HTTPException(404, f"Upload '{upload_id}' not found.")
-    return path
 
 
 class LandingWindowBody(BaseModel):
@@ -71,7 +42,6 @@ class LandingWindowBody(BaseModel):
 
 
 class OptimizeRequest(BaseModel):
-    upload_id: str = "sample"
     source_warehouse: str
     fleet: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_FLEET))
     max_source_km: float = 80
@@ -83,9 +53,17 @@ class OptimizeRequest(BaseModel):
     landing: LandingWindowBody = Field(default_factory=LandingWindowBody)
 
 
+def _require_sheets() -> None:
+    if not sheets_configured():
+        raise HTTPException(
+            503,
+            "Google Sheets not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON on the server "
+            "and share the Raw_1 and static reference spreadsheets with that service account.",
+        )
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    _ensure_sample()
     if not INDEX_HTML.exists():
         raise HTTPException(500, "UI file missing at app/static/index.html")
     return FileResponse(INDEX_HTML, media_type="text/html")
@@ -93,11 +71,13 @@ async def index():
 
 @app.get("/api/config")
 async def config():
-    _ensure_sample()
+    sheets = check_sheets_connection()
     return {
+        "data_source": "google_sheets",
+        "raw_sheet": RAW_SHEET,
+        "sheets": sheets,
         "fleet_sizes": FLEET_SIZES,
         "default_fleet": DEFAULT_FLEET,
-        "has_sample": SAMPLE_CSV.exists(),
         "landing": DEFAULT_LANDING.to_dict(),
         "default_max_docks": DEFAULT_MAX_DOCKS,
         "default_max_hops": DEFAULT_MAX_HOPS,
@@ -111,62 +91,34 @@ async def config():
 
 @app.get("/api/health")
 async def health():
-    import os
-
+    sheets = check_sheets_connection()
     return {
-        "ok": True,
-        "sample": SAMPLE_CSV.exists(),
-        "static_cache": STATIC_CACHE.exists(),
+        "ok": sheets.get("ok", False),
+        "data_source": "google_sheets",
+        "sheets": sheets,
         "ors_configured": bool(os.environ.get("ORS_API_KEY")),
     }
 
 
-@app.post("/api/upload")
-async def upload_csv(file: UploadFile = File(...)):
-    if not file.filename:
-        raise HTTPException(400, "No file selected.")
-    ext = Path(file.filename).suffix.lower()
-    if ext not in {".csv", ".xlsx", ".xls", ".xlsm"}:
-        raise HTTPException(400, "Upload CSV or Excel (.xlsx).")
-
-    upload_id = uuid.uuid4().hex[:12]
-    dest = UPLOAD_DIR / f"{upload_id}.csv"
-    raw_bytes = await file.read()
-
-    if ext == ".csv":
-        dest.write_bytes(raw_bytes)
-    else:
-        import io
-
-        df = pd.read_excel(io.BytesIO(raw_bytes), engine="openpyxl")
-        df.to_csv(dest, index=False)
-
-    try:
-        df = load_raw_file(dest)
-        sources = list_source_warehouses(df)
-    except Exception as exc:
-        dest.unlink(missing_ok=True)
-        raise HTTPException(400, f"Could not parse file: {exc}") from exc
-
-    build_cache_from_csv(dest)
-    return {
-        "upload_id": upload_id,
-        "filename": file.filename,
-        "rows": len(df),
-        "sources": sources,
-    }
+@app.post("/api/refresh-data")
+async def refresh_data():
+    _require_sheets()
+    invalidate_raw_cache()
+    return {"ok": True}
 
 
 @app.get("/api/sources")
-async def sources(upload_id: str = "sample"):
-    path = _resolve_csv(upload_id)
-    df = load_raw_file(path)
-    return {"upload_id": upload_id, "sources": list_source_warehouses(df)}
+async def sources():
+    _require_sheets()
+    try:
+        return {"sources": list_source_warehouses()}
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/api/optimize")
 async def optimize(body: OptimizeRequest):
-    path = _resolve_csv(body.upload_id)
+    _require_sheets()
     fleet = {k: int(body.fleet.get(k, 0)) for k in FLEET_SIZES}
     landing = from_api_dict(body.landing.model_dump())
     try:
@@ -175,7 +127,6 @@ async def optimize(body: OptimizeRequest):
         raise HTTPException(400, str(exc)) from exc
     try:
         result = run_optimization(
-            path,
             body.source_warehouse.strip(),
             fleet,
             max_source_km=body.max_source_km,
@@ -194,7 +145,6 @@ async def optimize(body: OptimizeRequest):
 @app.post("/api/optimize-form")
 async def optimize_form(
     source_warehouse: str = Form(...),
-    upload_id: str = Form("sample"),
     max_source_km: float = Form(80),
     max_totes: float = Form(DEFAULT_MAX_TOTES),
     dbd_past_cutoff_hrs: float = Form(DEFAULT_DBD_PAST_HRS),
@@ -224,7 +174,6 @@ async def optimize_form(
         "22FT": fleet_22FT,
     }
     body = OptimizeRequest(
-        upload_id=upload_id,
         source_warehouse=source_warehouse,
         fleet=fleet,
         max_source_km=max_source_km,

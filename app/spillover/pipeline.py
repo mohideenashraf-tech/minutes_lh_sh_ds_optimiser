@@ -5,7 +5,6 @@ import io
 import sys
 from contextlib import redirect_stdout
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -42,7 +41,6 @@ def _trips_to_records(trips: list[dict]) -> list[dict]:
 
 
 def run_optimization(
-    csv_path: Path,
     source_warehouse: str,
     fleet: dict[str, int],
     *,
@@ -58,7 +56,6 @@ def run_optimization(
 
     landing = landing or DEFAULT_LANDING
     demand, legs, demand_logs = build_demand(
-        csv_path,
         source_warehouse,
         max_source_km=max_source_km,
         max_totes=max_totes,
