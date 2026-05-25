@@ -79,7 +79,6 @@ def build_demand(
     path: Path,
     source_warehouse: str,
     *,
-    min_totes: float = 40,
     max_source_km: float = 80.0,
     landing: LandingWindowConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
@@ -164,13 +163,6 @@ def build_demand(
         agg["volume"] = agg["volume"].fillna(agg["box_count"] * 20)
 
     logs.append(f"Combined grid demand: {len(agg)} destinations | box_count {agg['box_count'].sum():,.0f}")
-
-    below = agg[agg["totes"] <= min_totes]
-    if not below.empty:
-        logs.append(f"Dropped {len(below)} destinations with box_count <= {min_totes}")
-    agg = agg[agg["totes"] > min_totes].copy()
-    if agg.empty:
-        raise ValueError(f"No destinations after min box filter ({min_totes}).")
 
     df = apply_landing_windows(agg, landing)
     logs.append(f"Landing window: {landing.summary()}")

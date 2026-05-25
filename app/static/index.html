@@ -200,9 +200,7 @@
 
       <section>
         <h2>Filters</h2>
-        <label for="minTotes">Min box count per destination</label>
-        <input type="number" id="minTotes" min="0" value="40" />
-        <label for="maxKm" style="margin-top:0.75rem">Max distance from source (km)</label>
+        <label for="maxKm">Max distance from source (km)</label>
         <input type="number" id="maxKm" min="10" value="80" />
       </section>
 
@@ -458,7 +456,6 @@
             upload_id: uploadId,
             source_warehouse: source,
             fleet: fleet,
-            min_totes: parseFloat(document.getElementById("minTotes").value),
             max_source_km: parseFloat(document.getElementById("maxKm").value),
             landing: landingPayload(),
           }),

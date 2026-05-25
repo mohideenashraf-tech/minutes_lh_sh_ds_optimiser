@@ -68,7 +68,6 @@ class OptimizeRequest(BaseModel):
     upload_id: str = "sample"
     source_warehouse: str
     fleet: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_FLEET))
-    min_totes: float = 40
     max_source_km: float = 80
     landing: LandingWindowBody = Field(default_factory=LandingWindowBody)
 
@@ -161,7 +160,6 @@ async def optimize(body: OptimizeRequest):
             path,
             body.source_warehouse.strip(),
             fleet,
-            min_totes=body.min_totes,
             max_source_km=body.max_source_km,
             landing=landing,
         )
@@ -174,7 +172,6 @@ async def optimize(body: OptimizeRequest):
 async def optimize_form(
     source_warehouse: str = Form(...),
     upload_id: str = Form("sample"),
-    min_totes: float = Form(40),
     max_source_km: float = Form(80),
     day_start: str = Form("10:00"),
     day_end: str = Form("18:00"),
@@ -202,7 +199,6 @@ async def optimize_form(
         upload_id=upload_id,
         source_warehouse=source_warehouse,
         fleet=fleet,
-        min_totes=min_totes,
         max_source_km=max_source_km,
         landing=LandingWindowBody(
             day_start=day_start,

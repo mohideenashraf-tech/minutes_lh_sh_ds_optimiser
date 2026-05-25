@@ -46,7 +46,6 @@ def run_optimization(
     source_warehouse: str,
     fleet: dict[str, int],
     *,
-    min_totes: float = 40,
     max_source_km: float = 80.0,
     landing=None,
 ) -> dict[str, Any]:
@@ -56,7 +55,6 @@ def run_optimization(
     demand, legs, demand_logs = build_demand(
         csv_path,
         source_warehouse,
-        min_totes=min_totes,
         max_source_km=max_source_km,
         landing=landing,
     )
