@@ -103,28 +103,6 @@ def filter_rows_by_dbd_window(
     return out.drop(columns=["_dbd_dt"], errors="ignore")
 
 
-def dbd_deadlines_by_destination(sg_rows: pd.DataFrame) -> pd.DataFrame | None:
-    """Earliest dbd per destination_warehouse from Source Grid rows (naive datetimes)."""
-    if sg_rows.empty or "dbd" not in sg_rows.columns:
-        return None
-    tmp = sg_rows.copy()
-    tmp["_dbd_dt"] = pd.to_datetime(tmp["dbd"], errors="coerce")
-    tmp = tmp[tmp["_dbd_dt"].notna()]
-    if tmp.empty:
-        return None
-    if tmp["_dbd_dt"].dt.tz is not None:
-        tmp["_dbd_dt"] = tmp["_dbd_dt"].dt.tz_localize(None)
-    agg = (
-        tmp.groupby("destination_warehouse", dropna=False)["_dbd_dt"]
-        .min()
-        .reset_index()
-        .rename(columns={"destination_warehouse": "id", "_dbd_dt": "window_end"})
-    )
-    agg["id"] = agg["id"].astype(str).str.strip()
-    agg["window_start"] = agg["window_end"]
-    return agg[["id", "window_start", "window_end"]]
-
-
 def pivot_xd_grid(df: pd.DataFrame) -> pd.DataFrame:
     xd = df[df["box_final_status"] == "XD Grid"].copy()
     return (
@@ -143,7 +121,6 @@ def build_demand(
     min_totes: float = 40.0,
     dbd_past_cutoff_hrs: float = 4.0,
     dbd_future_cutoff_hrs: float = 12.0,
-    use_dbd_windows: bool = True,
     landing: LandingWindowConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """Build solver demand from Source Grid + XD Grid (Raw_1 format CSV)."""
@@ -240,26 +217,7 @@ def build_demand(
             raise ValueError(f"No destinations after min box filter ({min_totes}).")
 
     df = apply_landing_windows(agg, landing)
-    dbd_win = dbd_deadlines_by_destination(sg_rows) if use_dbd_windows else None
-    if dbd_win is not None:
-        df = df.merge(
-            dbd_win.rename(columns={"window_start": "_w_s_dbd", "window_end": "_w_e_dbd"}),
-            on="id",
-            how="left",
-        )
-        has_dbd = df["_w_e_dbd"].notna()
-        if has_dbd.any():
-            df.loc[has_dbd, "window_start"] = df.loc[has_dbd, "_w_s_dbd"]
-            df.loc[has_dbd, "window_end"] = df.loc[has_dbd, "_w_e_dbd"]
-            logs.append(
-                f"Delivery windows: DBD deadline for {has_dbd.sum()} destinations; "
-                f"landing shift for others"
-            )
-        else:
-            logs.append("Delivery windows: landing shift (no DBD on Source Grid rows)")
-        df = df.drop(columns=["_w_s_dbd", "_w_e_dbd"], errors="ignore")
-    else:
-        logs.append(f"Delivery windows: {landing.summary()}")
+    logs.append(f"Delivery windows: {landing.summary()}")
 
     df_lat = df_dests[["id", "lat", "lon"]].drop_duplicates(subset=["id"])
     df = df.merge(df_lat, on="id", how="left")

@@ -50,7 +50,6 @@ def run_optimization(
     min_totes: float = 40.0,
     dbd_past_cutoff_hrs: float = 4.0,
     dbd_future_cutoff_hrs: float = 12.0,
-    use_dbd_windows: bool = True,
     max_docks: int = 9,
     max_hops: int = 2,
     landing=None,
@@ -65,7 +64,6 @@ def run_optimization(
         min_totes=min_totes,
         dbd_past_cutoff_hrs=dbd_past_cutoff_hrs,
         dbd_future_cutoff_hrs=dbd_future_cutoff_hrs,
-        use_dbd_windows=use_dbd_windows,
         landing=landing,
     )
 
@@ -152,7 +150,6 @@ def run_optimization(
             "min_totes": min_totes,
             "dbd_past_cutoff_hrs": dbd_past_cutoff_hrs,
             "dbd_future_cutoff_hrs": dbd_future_cutoff_hrs,
-            "use_dbd_windows": use_dbd_windows,
         },
         "summary": {
             "primary_trips": primary_n,

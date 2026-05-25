@@ -41,15 +41,6 @@
     }
     .header-filters label { font-size: 0.8rem; margin-bottom: 0.25rem; }
     .header-filters input[type="number"] { width: 100%; }
-    .header-filters .check-row {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      margin-top: 1.35rem;
-      font-size: 0.85rem;
-      color: var(--text);
-    }
-    .header-filters .check-row label { margin: 0; }
     .layout {
       display: grid;
       grid-template-columns: minmax(320px, 420px) 1fr;
@@ -177,10 +168,6 @@
         <label for="dbdFuture">DBD — max hours in the future (IST)</label>
         <input type="number" id="dbdFuture" min="0" max="72" value="12" />
       </div>
-      <div class="check-row">
-        <input type="checkbox" id="useDbdWindows" checked />
-        <label for="useDbdWindows">Use DBD as delivery deadline per store</label>
-      </div>
     </div>
   </header>
 
@@ -209,7 +196,7 @@
 
       <section>
         <h2>Landing windows</h2>
-        <p class="status" style="margin-top:0">Fallback when a store has no DBD in the filtered rows. DBD filters are at the top of the page.</p>
+        <p class="status" style="margin-top:0">Delivery must land within these windows for every stop. DBD filters at the top only narrow which rows enter demand.</p>
         <label for="activePart">Planning shift</label>
         <select id="activePart">
           <option value="Day">Day</option>
@@ -518,7 +505,6 @@
             min_totes: parseFloat(document.getElementById("minTotes").value),
             dbd_past_cutoff_hrs: parseFloat(document.getElementById("dbdPast").value),
             dbd_future_cutoff_hrs: parseFloat(document.getElementById("dbdFuture").value),
-            use_dbd_windows: document.getElementById("useDbdWindows").checked,
             max_docks: parseInt(document.getElementById("maxDocks").value, 10),
             max_hops: parseInt(document.getElementById("maxHops").value, 10),
             landing: landingPayload(),
