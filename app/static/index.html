@@ -170,6 +170,15 @@
     .dock-chart-legend span { display: inline-flex; align-items: center; gap: 0.35rem; margin-right: 1rem; }
     .dock-legend-line { display: inline-block; width: 24px; height: 0; border-top: 2px dashed #dc2626; }
     .dock-legend-fill { display: inline-block; width: 12px; height: 12px; background: rgba(37, 99, 235, 0.25); border: 1px solid var(--accent); }
+    .dock-section-title {
+      margin: 1.25rem 0 0.5rem;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .routes-table-wrap { overflow: auto; max-height: min(42vh, 420px); margin-bottom: 0.25rem; }
   </style>
 </head>
 <body>
@@ -281,12 +290,11 @@
           <button type="button" class="tab active" data-tab="routes">Routes</button>
           <button type="button" class="tab" data-tab="rotation">Fleet rotation</button>
           <button type="button" class="tab" data-tab="demand">Demand</button>
-          <button type="button" class="tab" data-tab="docks">Dock utilisation</button>
           <button type="button" class="tab" data-tab="log">Processing log</button>
         </div>
 
         <div id="panel-routes" class="panel active">
-          <div style="overflow:auto; max-height: calc(100vh - 280px);">
+          <div class="routes-table-wrap">
             <table id="routesTable">
               <thead>
                 <tr>
@@ -296,6 +304,10 @@
               </thead>
               <tbody></tbody>
             </table>
+          </div>
+          <h3 class="dock-section-title">Dock utilisation</h3>
+          <div id="dockChartPanel" class="dock-chart-wrap">
+            <p class="status">Chart appears here after you run the optimizer.</p>
           </div>
         </div>
 
@@ -319,12 +331,6 @@
               <thead><tr><th>Destination</th><th>Box count</th><th>Lat</th><th>Lon</th></tr></thead>
               <tbody></tbody>
             </table>
-          </div>
-        </div>
-
-        <div id="panel-docks" class="panel">
-          <div id="dockChartPanel" class="dock-chart-wrap">
-            <p class="status">Run the optimizer to see dock utilisation.</p>
           </div>
         </div>
 
