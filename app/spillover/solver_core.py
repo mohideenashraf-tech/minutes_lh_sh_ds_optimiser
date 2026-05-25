@@ -487,9 +487,12 @@ def _multi_trip_type(n_hops):
     return f'{n_hops}-Stop'
 
 
-def solve_with_ortools(df, df_trucks, src, available_fleet, max_docks=None, max_hops=None):
+def solve_with_ortools(df, df_trucks, src, available_fleet, max_docks=None, max_hops=None, source_label=None):
+    from app.spillover.trip_display import build_trip_legs, serialize_trip_legs
+
     max_docks = max(1, int(max_docks if max_docks is not None else MAX_DOCKS))
     max_hops = max(1, min(MAX_ROUTE_HOPS, int(max_hops if max_hops is not None else 2)))
+    source_label = source_label or "Source"
     print(
         f"🚀 Generating Options (max_docks={max_docks}, max_hops={max_hops}, "
         f"fleet caps={available_fleet})..."
@@ -903,6 +906,11 @@ def solve_with_ortools(df, df_trucks, src, available_fleet, max_docks=None, max_
                     'trip_tag': 'Primary',
                     'dist':   c['dist'],
                     'volume': round(c['vol'], 2),
+                    'totes': round(c['vol'] / 20, 1),
+                    'dest_count': len(c.get('ids') or []),
+                    'trip_legs': serialize_trip_legs(
+                        build_trip_legs(c, base_orders, arr_all, source_label=source_label)
+                    ),
                     'vpt':               round_to_nearest_15(vpt),
                     'dispatch_from_dock': round_to_nearest_15(load_end),
                     'dispatch_from_source': round_to_nearest_15(disp),
@@ -923,11 +931,14 @@ def solve_with_ortools(df, df_trucks, src, available_fleet, max_docks=None, max_
 # ---------------------------------------------------------
 # 4. AD-HOC TRIP GENERATOR
 # ---------------------------------------------------------
-def generate_adhoc_trips(dropped_ixs, base_orders, df_trucks, src, base_d):
+def generate_adhoc_trips(dropped_ixs, base_orders, df_trucks, src, base_d, source_label=None):
     """
     For each dropped order, attempt a 2nd / ad-hoc trip using the
     smallest permissible truck. Returns (adhoc_results, unserviceable_list).
     """
+    from app.spillover.trip_display import build_trip_legs, serialize_trip_legs
+
+    source_label = source_label or "Source"
     adhoc_results    = []
     unserviceable    = []
     if not dropped_ixs:
@@ -988,6 +999,13 @@ def generate_adhoc_trips(dropped_ixs, base_orders, df_trucks, src, base_d):
         ret_time = round_to_nearest_15(arr1  + timedelta(hours=load_hrs + ord['transit_ret']))
         dist = ord['dist_out'] + ord['dist_ret']
         print(f"   ✅ {store_id}: Ad-hoc trip → {truck} | VPT {vpt.strftime('%H:%M')} | Dispatch {disp.strftime('%H:%M')} | Return {ret_time.strftime('%H:%M')}")
+        adhoc_c = {
+            'type': 'Direct',
+            'ids': [o_idx],
+            'truck': truck,
+            'vol': ord['vol'],
+            'route_desc': store_id,
+        }
         adhoc_results.append({
             'type':  'Direct',
             'route': store_id,
@@ -995,6 +1013,11 @@ def generate_adhoc_trips(dropped_ixs, base_orders, df_trucks, src, base_d):
             'trip_tag': 'Ad-Hoc',
             'dist':   dist,
             'volume': round(ord['vol'], 2),
+            'totes': round(req_totes, 1),
+            'dest_count': 1,
+            'trip_legs': serialize_trip_legs(
+                build_trip_legs(adhoc_c, base_orders, [arr1], source_label=source_label)
+            ),
             'vpt':               vpt,
             'dispatch_from_dock': round_to_nearest_15(vpt + timedelta(hours=load_hrs)),
             'dispatch_from_source': disp,

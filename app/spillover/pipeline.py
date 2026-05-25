@@ -33,7 +33,10 @@ def _trips_to_records(trips: list[dict]) -> list[dict]:
     for t in trips:
         row = {}
         for k, v in t.items():
-            if k in {"vpt", "dispatch_from_dock", "dispatch_from_source", "return_time", "hop1", "hop2", "hop3"}:
+            if k in {
+                "vpt", "dispatch_from_dock", "dispatch_from_source", "return_time",
+                "hop1", "hop2", "hop3", "hop4", "hop5",
+            }:
                 row[k] = _serialize_dt(v)
             else:
                 row[k] = v
@@ -89,6 +92,7 @@ def run_optimization(
             demand, df_trucks, src, available_fleet,
             max_docks=max_docks,
             max_hops=max_hops,
+            source_label=source_warehouse,
         )
         try:
             first_date = pd.to_datetime(demand["window_start"].iloc[0])
@@ -96,7 +100,7 @@ def run_optimization(
         except Exception:
             base_d = datetime(2024, 1, 2)
         adhoc_trips, unserviceable = sc.generate_adhoc_trips(
-            dropped_ixs, base_orders, df_trucks, src, base_d
+            dropped_ixs, base_orders, df_trucks, src, base_d, source_label=source_warehouse
         )
         all_trips = opt_trips + adhoc_trips
         fleet = sc.run_fleet_rotation(all_trips, initial_fleet=[]) if all_trips else []
