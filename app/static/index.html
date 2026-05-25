@@ -6,15 +6,15 @@
   <title>Spillover Milkrun Optimizer</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --panel: #1a2332;
-      --border: #2d3a4f;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --success: #22c55e;
-      --danger: #ef4444;
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #16a34a;
+      --danger: #dc2626;
     }
     * { box-sizing: border-box; }
     body {
@@ -27,7 +27,7 @@
     header {
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(135deg, #1a2332 0%, #0f1419 100%);
+      background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
     }
     header h1 { margin: 0; font-size: 1.35rem; font-weight: 600; }
     header p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.9rem; }
@@ -53,7 +53,7 @@
       padding: 0.55rem 0.65rem;
       border: 1px solid var(--border);
       border-radius: 6px;
-      background: var(--bg);
+      background: #ffffff;
       color: var(--text);
       font-size: 0.95rem;
     }
@@ -108,14 +108,14 @@
     table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); }
     th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
-    tr:hover td { background: rgba(59, 130, 246, 0.06); }
+    tr:hover td { background: rgba(37, 99, 235, 0.08); }
     .badge { display: inline-block; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
-    .badge-direct { background: #1e3a5f; color: #93c5fd; }
-    .badge-pair { background: #422006; color: #fcd34d; }
-    .badge-primary { background: #14532d; color: #86efac; }
-    .badge-adhoc { background: #4c1d95; color: #c4b5fd; }
+    .badge-direct { background: #dbeafe; color: #1d4ed8; }
+    .badge-pair { background: #fef3c7; color: #b45309; }
+    .badge-primary { background: #dcfce7; color: #166534; }
+    .badge-adhoc { background: #ede9fe; color: #6d28d9; }
     .log-box {
-      background: #0a0e12;
+      background: #f1f5f9;
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 0.75rem;
@@ -124,7 +124,7 @@
       max-height: 280px;
       overflow: auto;
       white-space: pre-wrap;
-      color: #94a3b8;
+      color: #475569;
     }
     .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted); }
     .spinner {
