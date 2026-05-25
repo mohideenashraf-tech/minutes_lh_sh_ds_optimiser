@@ -27,6 +27,9 @@ SAMPLE_CSV = DATA_DIR / "sample.csv"
 DEFAULT_FLEET = {"07FT": 9, "08FT": 9, "10FT": 9, "14FT": 9, "17FT": 0, "20FT": 0, "22FT": 0}
 DEFAULT_MAX_DOCKS = 9
 DEFAULT_MAX_HOPS = 2
+DEFAULT_MIN_TOTES = 40.0
+DEFAULT_DBD_PAST_HRS = 4.0
+DEFAULT_DBD_FUTURE_HRS = 12.0
 
 app = FastAPI(title="Spillover Milkrun Optimizer", version="1.0.0")
 
@@ -72,6 +75,10 @@ class OptimizeRequest(BaseModel):
     source_warehouse: str
     fleet: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_FLEET))
     max_source_km: float = 80
+    min_totes: float = Field(DEFAULT_MIN_TOTES, ge=0)
+    dbd_past_cutoff_hrs: float = Field(DEFAULT_DBD_PAST_HRS, ge=0, le=72)
+    dbd_future_cutoff_hrs: float = Field(DEFAULT_DBD_FUTURE_HRS, ge=0, le=72)
+    use_dbd_windows: bool = True
     max_docks: int = Field(DEFAULT_MAX_DOCKS, ge=1, le=50)
     max_hops: int = Field(DEFAULT_MAX_HOPS, ge=1, le=5)
     landing: LandingWindowBody = Field(default_factory=LandingWindowBody)
@@ -97,6 +104,9 @@ async def config():
         "default_max_hops": DEFAULT_MAX_HOPS,
         "max_route_hops": 5,
         "ors_interhop_budget": int(os.environ.get("SPILLOVER_MAX_PAIR_API_CALLS", "300")),
+        "default_min_totes": DEFAULT_MIN_TOTES,
+        "default_dbd_past_hrs": DEFAULT_DBD_PAST_HRS,
+        "default_dbd_future_hrs": DEFAULT_DBD_FUTURE_HRS,
     }
 
 
@@ -170,6 +180,10 @@ async def optimize(body: OptimizeRequest):
             body.source_warehouse.strip(),
             fleet,
             max_source_km=body.max_source_km,
+            min_totes=body.min_totes,
+            dbd_past_cutoff_hrs=body.dbd_past_cutoff_hrs,
+            dbd_future_cutoff_hrs=body.dbd_future_cutoff_hrs,
+            use_dbd_windows=body.use_dbd_windows,
             max_docks=body.max_docks,
             max_hops=body.max_hops,
             landing=landing,
@@ -184,6 +198,10 @@ async def optimize_form(
     source_warehouse: str = Form(...),
     upload_id: str = Form("sample"),
     max_source_km: float = Form(80),
+    min_totes: float = Form(DEFAULT_MIN_TOTES),
+    dbd_past_cutoff_hrs: float = Form(DEFAULT_DBD_PAST_HRS),
+    dbd_future_cutoff_hrs: float = Form(DEFAULT_DBD_FUTURE_HRS),
+    use_dbd_windows: bool = Form(True),
     max_docks: int = Form(DEFAULT_MAX_DOCKS),
     max_hops: int = Form(DEFAULT_MAX_HOPS),
     day_start: str = Form("10:00"),
@@ -213,6 +231,10 @@ async def optimize_form(
         source_warehouse=source_warehouse,
         fleet=fleet,
         max_source_km=max_source_km,
+        min_totes=min_totes,
+        dbd_past_cutoff_hrs=dbd_past_cutoff_hrs,
+        dbd_future_cutoff_hrs=dbd_future_cutoff_hrs,
+        use_dbd_windows=use_dbd_windows,
         max_docks=max_docks,
         max_hops=max_hops,
         landing=LandingWindowBody(

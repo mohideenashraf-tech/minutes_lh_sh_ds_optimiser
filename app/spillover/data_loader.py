@@ -1,13 +1,17 @@
-"""Source Grid + XD Grid demand loading from Raw_1 CSV (grid only, no DBD)."""
+"""Source Grid + XD Grid demand loading from Raw_1 CSV."""
 from __future__ import annotations
 
 import math
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+import pytz
 
 from app.spillover.landing_windows import DEFAULT_LANDING, LandingWindowConfig, apply_landing_windows
 from app.spillover.static_ref import load_static_reference
+
+IST = pytz.timezone("Asia/Kolkata")
 
 
 def load_raw_file(path: Path) -> pd.DataFrame:
@@ -65,6 +69,62 @@ def pivot_source_grid(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def filter_rows_by_dbd_window(
+    df: pd.DataFrame,
+    past_hrs: float,
+    future_hrs: float,
+    logs: list[str],
+) -> pd.DataFrame:
+    """Keep rows whose dbd is within [now_IST - past_hrs, now_IST + future_hrs]."""
+    if "dbd" not in df.columns:
+        logs.append("DBD column not found in file — DBD time filter skipped.")
+        return df
+    out = df.copy()
+    out["_dbd_dt"] = pd.to_datetime(out["dbd"], errors="coerce")
+    out = out[out["_dbd_dt"].notna()].copy()
+    if out.empty:
+        logs.append("DBD filter: no rows with parseable dbd values.")
+        return out
+    if out["_dbd_dt"].dt.tz is None:
+        out["_dbd_dt"] = out["_dbd_dt"].dt.tz_localize(IST, ambiguous="infer", nonexistent="shift_forward")
+    else:
+        out["_dbd_dt"] = out["_dbd_dt"].dt.tz_convert(IST)
+    now_ts = datetime.now(IST)
+    low = now_ts - timedelta(hours=float(past_hrs))
+    high = now_ts + timedelta(hours=float(future_hrs))
+    before = len(out)
+    out = out[(out["_dbd_dt"] >= low) & (out["_dbd_dt"] <= high)].copy()
+    dropped = before - len(out)
+    if dropped:
+        logs.append(
+            f"DBD window [{low.strftime('%H:%M')}–{high.strftime('%H:%M')} IST]: "
+            f"dropped {dropped} rows"
+        )
+    return out.drop(columns=["_dbd_dt"], errors="ignore")
+
+
+def dbd_deadlines_by_destination(sg_rows: pd.DataFrame) -> pd.DataFrame | None:
+    """Earliest dbd per destination_warehouse from Source Grid rows (naive datetimes)."""
+    if sg_rows.empty or "dbd" not in sg_rows.columns:
+        return None
+    tmp = sg_rows.copy()
+    tmp["_dbd_dt"] = pd.to_datetime(tmp["dbd"], errors="coerce")
+    tmp = tmp[tmp["_dbd_dt"].notna()]
+    if tmp.empty:
+        return None
+    if tmp["_dbd_dt"].dt.tz is not None:
+        tmp["_dbd_dt"] = tmp["_dbd_dt"].dt.tz_localize(None)
+    agg = (
+        tmp.groupby("destination_warehouse", dropna=False)["_dbd_dt"]
+        .min()
+        .reset_index()
+        .rename(columns={"destination_warehouse": "id", "_dbd_dt": "window_end"})
+    )
+    agg["id"] = agg["id"].astype(str).str.strip()
+    agg["window_start"] = agg["window_end"]
+    return agg[["id", "window_start", "window_end"]]
+
+
 def pivot_xd_grid(df: pd.DataFrame) -> pd.DataFrame:
     xd = df[df["box_final_status"] == "XD Grid"].copy()
     return (
@@ -80,14 +140,21 @@ def build_demand(
     source_warehouse: str,
     *,
     max_source_km: float = 80.0,
+    min_totes: float = 40.0,
+    dbd_past_cutoff_hrs: float = 4.0,
+    dbd_future_cutoff_hrs: float = 12.0,
+    use_dbd_windows: bool = True,
     landing: LandingWindowConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Build solver demand from Source Grid + XD Grid only (no DBD)."""
+    """Build solver demand from Source Grid + XD Grid (Raw_1 format CSV)."""
     logs: list[str] = []
     landing = landing or DEFAULT_LANDING
 
     df_raw = load_raw_file(path)
     logs.append(f"Loaded {len(df_raw):,} rows from {path.name}")
+    df_raw = filter_rows_by_dbd_window(df_raw, dbd_past_cutoff_hrs, dbd_future_cutoff_hrs, logs)
+    if df_raw.empty:
+        raise ValueError("No rows remain after DBD filter.")
 
     df_sources, df_dests, _windows = load_static_reference()
 
@@ -164,8 +231,35 @@ def build_demand(
 
     logs.append(f"Combined grid demand: {len(agg)} destinations | box_count {agg['box_count'].sum():,.0f}")
 
+    if min_totes > 0:
+        below = agg[agg["totes"] <= min_totes]
+        if not below.empty:
+            logs.append(f"Dropped {len(below)} destinations with box_count <= {min_totes}")
+        agg = agg[agg["totes"] > min_totes].copy()
+        if agg.empty:
+            raise ValueError(f"No destinations after min box filter ({min_totes}).")
+
     df = apply_landing_windows(agg, landing)
-    logs.append(f"Landing window: {landing.summary()}")
+    dbd_win = dbd_deadlines_by_destination(sg_rows) if use_dbd_windows else None
+    if dbd_win is not None:
+        df = df.merge(
+            dbd_win.rename(columns={"window_start": "_w_s_dbd", "window_end": "_w_e_dbd"}),
+            on="id",
+            how="left",
+        )
+        has_dbd = df["_w_e_dbd"].notna()
+        if has_dbd.any():
+            df.loc[has_dbd, "window_start"] = df.loc[has_dbd, "_w_s_dbd"]
+            df.loc[has_dbd, "window_end"] = df.loc[has_dbd, "_w_e_dbd"]
+            logs.append(
+                f"Delivery windows: DBD deadline for {has_dbd.sum()} destinations; "
+                f"landing shift for others"
+            )
+        else:
+            logs.append("Delivery windows: landing shift (no DBD on Source Grid rows)")
+        df = df.drop(columns=["_w_s_dbd", "_w_e_dbd"], errors="ignore")
+    else:
+        logs.append(f"Delivery windows: {landing.summary()}")
 
     df_lat = df_dests[["id", "lat", "lon"]].drop_duplicates(subset=["id"])
     df = df.merge(df_lat, on="id", how="left")

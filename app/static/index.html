@@ -31,10 +31,29 @@
     }
     header h1 { margin: 0; font-size: 1.35rem; font-weight: 600; }
     header p { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.9rem; }
+    .header-filters {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.75rem 1rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+    .header-filters label { font-size: 0.8rem; margin-bottom: 0.25rem; }
+    .header-filters input[type="number"] { width: 100%; }
+    .header-filters .check-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 1.35rem;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+    .header-filters .check-row label { margin: 0; }
     .layout {
       display: grid;
       grid-template-columns: minmax(320px, 420px) 1fr;
-      min-height: calc(100vh - 80px);
+      min-height: calc(100vh - 140px);
     }
     @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
     .left, .right { padding: 1.25rem 1.5rem; overflow: auto; }
@@ -145,6 +164,24 @@
   <header>
     <h1>Spillover Milkrun Optimizer</h1>
     <p>Source Grid + XD Grid demand · OR-Tools routing · upload CSV or use sample</p>
+    <div class="header-filters">
+      <div>
+        <label for="minTotes">Min box count per destination</label>
+        <input type="number" id="minTotes" min="0" value="40" />
+      </div>
+      <div>
+        <label for="dbdPast">DBD — max hours in the past (IST)</label>
+        <input type="number" id="dbdPast" min="0" max="72" value="4" />
+      </div>
+      <div>
+        <label for="dbdFuture">DBD — max hours in the future (IST)</label>
+        <input type="number" id="dbdFuture" min="0" max="72" value="12" />
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="useDbdWindows" checked />
+        <label for="useDbdWindows">Use DBD as delivery deadline per store</label>
+      </div>
+    </div>
   </header>
 
   <div class="layout">
@@ -172,7 +209,7 @@
 
       <section>
         <h2>Landing windows</h2>
-        <p class="status" style="margin-top:0">Grid demand only — no DBD. All stops use the selected window.</p>
+        <p class="status" style="margin-top:0">Fallback when a store has no DBD in the filtered rows. DBD filters are at the top of the page.</p>
         <label for="activePart">Planning shift</label>
         <select id="activePart">
           <option value="Day">Day</option>
@@ -478,6 +515,10 @@
             source_warehouse: source,
             fleet: fleet,
             max_source_km: parseFloat(document.getElementById("maxKm").value),
+            min_totes: parseFloat(document.getElementById("minTotes").value),
+            dbd_past_cutoff_hrs: parseFloat(document.getElementById("dbdPast").value),
+            dbd_future_cutoff_hrs: parseFloat(document.getElementById("dbdFuture").value),
+            use_dbd_windows: document.getElementById("useDbdWindows").checked,
             max_docks: parseInt(document.getElementById("maxDocks").value, 10),
             max_hops: parseInt(document.getElementById("maxHops").value, 10),
             landing: landingPayload(),
@@ -507,6 +548,15 @@
         }
         if (cfg.default_max_hops != null) {
           document.getElementById("maxHops").value = String(cfg.default_max_hops);
+        }
+        if (cfg.default_min_totes != null) {
+          document.getElementById("minTotes").value = String(cfg.default_min_totes);
+        }
+        if (cfg.default_dbd_past_hrs != null) {
+          document.getElementById("dbdPast").value = String(cfg.default_dbd_past_hrs);
+        }
+        if (cfg.default_dbd_future_hrs != null) {
+          document.getElementById("dbdFuture").value = String(cfg.default_dbd_future_hrs);
         }
         setStatus(
           fileStatus,
