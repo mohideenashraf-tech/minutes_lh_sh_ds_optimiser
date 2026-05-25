@@ -204,6 +204,22 @@
         <input type="number" id="maxKm" min="10" value="80" />
       </section>
 
+      <section>
+        <h2>Solver settings</h2>
+        <label for="maxDocks">Loading docks at source</label>
+        <input type="number" id="maxDocks" min="1" max="50" value="9" />
+        <p class="status" style="margin-top:0.35rem">Max trucks loading at the source at the same time (CP-SAT cumulative limit).</p>
+        <label for="maxHops" style="margin-top:0.75rem">Stops per trip (max hops)</label>
+        <select id="maxHops">
+          <option value="1">1 — Direct only (one destination per trip)</option>
+          <option value="2" selected>2 — Up to 2 stops per trip</option>
+          <option value="3">3 — Up to 3 stops</option>
+          <option value="4">4 — Up to 4 stops</option>
+          <option value="5">5 — Up to 5 stops</option>
+        </select>
+        <p class="status" style="margin-top:0.35rem">Milk runs use Haversine first, then a shared ORS budget (see SPILLOVER_MAX_PAIR_API_CALLS). 4–5 stops take longer.</p>
+      </section>
+
       <div class="btn-row">
         <button type="button" class="btn-primary" id="runBtn">Run optimizer</button>
       </div>
@@ -403,7 +419,12 @@
       data.trips.forEach(function(t, i) {
         const tr = document.createElement("tr");
         const tag = t.trip_tag === "Ad-Hoc" ? badge("adhoc", "Ad-Hoc") : badge("primary", "Primary");
-        const type = t.type === "Pair" ? badge("pair", "Pair") : badge("direct", "Direct");
+        let typeLabel = "Direct";
+        let typeCls = "direct";
+        if (t.type === "Pair") { typeLabel = "Pair"; typeCls = "pair"; }
+        else if (t.type === "Triple") { typeLabel = "Triple"; typeCls = "pair"; }
+        else if (t.type && t.type.endsWith("-Stop")) { typeLabel = t.type; typeCls = "pair"; }
+        const type = badge(typeCls, typeLabel);
         tr.innerHTML =
           "<td>" + (i + 1) + "</td><td>" + tag + "</td><td>" + type + "</td>" +
           "<td>" + (t.truck_type || "") + "</td><td>" + (t.route || "") + "</td>" +
@@ -457,6 +478,8 @@
             source_warehouse: source,
             fleet: fleet,
             max_source_km: parseFloat(document.getElementById("maxKm").value),
+            max_docks: parseInt(document.getElementById("maxDocks").value, 10),
+            max_hops: parseInt(document.getElementById("maxHops").value, 10),
             landing: landingPayload(),
           }),
         });
@@ -479,6 +502,12 @@
         FLEET_SIZES = cfg.fleet_sizes;
         buildFleetInputs(cfg.fleet_sizes, cfg.default_fleet);
         setLandingDefaults(cfg.landing);
+        if (cfg.default_max_docks != null) {
+          document.getElementById("maxDocks").value = String(cfg.default_max_docks);
+        }
+        if (cfg.default_max_hops != null) {
+          document.getElementById("maxHops").value = String(cfg.default_max_hops);
+        }
         setStatus(
           fileStatus,
           cfg.has_sample

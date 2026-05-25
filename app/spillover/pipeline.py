@@ -47,6 +47,8 @@ def run_optimization(
     fleet: dict[str, int],
     *,
     max_source_km: float = 80.0,
+    max_docks: int = 9,
+    max_hops: int = 2,
     landing=None,
 ) -> dict[str, Any]:
     from app.spillover.landing_windows import DEFAULT_LANDING
@@ -80,7 +82,9 @@ def run_optimization(
     buf = io.StringIO()
     with redirect_stdout(buf):
         opt_trips, base_orders, dropped_ixs, _df_trucks = sc.solve_with_ortools(
-            demand, df_trucks, src, available_fleet
+            demand, df_trucks, src, available_fleet,
+            max_docks=max_docks,
+            max_hops=max_hops,
         )
         try:
             first_date = pd.to_datetime(demand["window_start"].iloc[0])
@@ -99,6 +103,7 @@ def run_optimization(
     trip_records = _trips_to_records(all_trips)
     direct_n = sum(1 for t in trip_records if t.get("type") == "Direct")
     pair_n = sum(1 for t in trip_records if t.get("type") == "Pair")
+    triple_n = sum(1 for t in trip_records if t.get("type") == "Triple")
     primary_n = sum(1 for t in trip_records if t.get("trip_tag") == "Primary")
     adhoc_n = sum(1 for t in trip_records if t.get("trip_tag") == "Ad-Hoc")
 
@@ -133,11 +138,13 @@ def run_optimization(
         .astype(str)
         .to_dict(orient="records"),
         "landing_window": landing.to_dict(),
+        "solver_settings": {"max_docks": max_docks, "max_hops": max_hops},
         "summary": {
             "primary_trips": primary_n,
             "adhoc_trips": adhoc_n,
             "direct_trips": direct_n,
             "pair_milk_runs": pair_n,
+            "triple_milk_runs": triple_n,
             "physical_trucks": len([v for v in fleet if v.get("trips")]),
             "unserviceable_count": len(unserviceable),
         },

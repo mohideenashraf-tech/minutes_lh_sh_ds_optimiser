@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 SAMPLE_CSV = DATA_DIR / "sample.csv"
 
 DEFAULT_FLEET = {"07FT": 9, "08FT": 9, "10FT": 9, "14FT": 9, "17FT": 0, "20FT": 0, "22FT": 0}
+DEFAULT_MAX_DOCKS = 9
+DEFAULT_MAX_HOPS = 2
 
 app = FastAPI(title="Spillover Milkrun Optimizer", version="1.0.0")
 
@@ -69,6 +72,8 @@ class OptimizeRequest(BaseModel):
     source_warehouse: str
     fleet: dict[str, int] = Field(default_factory=lambda: dict(DEFAULT_FLEET))
     max_source_km: float = 80
+    max_docks: int = Field(DEFAULT_MAX_DOCKS, ge=1, le=50)
+    max_hops: int = Field(DEFAULT_MAX_HOPS, ge=1, le=5)
     landing: LandingWindowBody = Field(default_factory=LandingWindowBody)
 
 
@@ -88,6 +93,10 @@ async def config():
         "default_fleet": DEFAULT_FLEET,
         "has_sample": SAMPLE_CSV.exists(),
         "landing": DEFAULT_LANDING.to_dict(),
+        "default_max_docks": DEFAULT_MAX_DOCKS,
+        "default_max_hops": DEFAULT_MAX_HOPS,
+        "max_route_hops": 5,
+        "ors_interhop_budget": int(os.environ.get("SPILLOVER_MAX_PAIR_API_CALLS", "300")),
     }
 
 
@@ -161,6 +170,8 @@ async def optimize(body: OptimizeRequest):
             body.source_warehouse.strip(),
             fleet,
             max_source_km=body.max_source_km,
+            max_docks=body.max_docks,
+            max_hops=body.max_hops,
             landing=landing,
         )
     except Exception as exc:
@@ -173,6 +184,8 @@ async def optimize_form(
     source_warehouse: str = Form(...),
     upload_id: str = Form("sample"),
     max_source_km: float = Form(80),
+    max_docks: int = Form(DEFAULT_MAX_DOCKS),
+    max_hops: int = Form(DEFAULT_MAX_HOPS),
     day_start: str = Form("10:00"),
     day_end: str = Form("18:00"),
     night_start: str = Form("22:00"),
@@ -200,6 +213,8 @@ async def optimize_form(
         source_warehouse=source_warehouse,
         fleet=fleet,
         max_source_km=max_source_km,
+        max_docks=max_docks,
+        max_hops=max_hops,
         landing=LandingWindowBody(
             day_start=day_start,
             day_end=day_end,

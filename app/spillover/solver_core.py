@@ -156,7 +156,10 @@ MAX_SOURCE_KM = 80.0   # destinations further than this from the source are excl
 # ──────────────────────────────────────────────────────────────────────────────
 # ──────────────────────────────────────────────────────────────────────────────
 # ── MULTI-HOP CONFIG ───────────────────────────────────────────────────────────
-MAX_HOPS = 3   # maximum stops per trip (1 = direct only, 2 = pairs, 3 = up to 3 stops)
+MAX_ROUTE_HOPS = 5   # max stops per trip supported by UI + solver
+# Haversine chains kept per stop-count (extension search); ORS budget is separate.
+_CHAIN_CAPS = {2: 2500, 3: 1000, 4: 500, 5: 250}
+_MAX_MULTI_CANDIDATES = 400
 # ──────────────────────────────────────────────────────────────────────────────
 def get_real_route(lat1, lon1, lat2, lon2):
     key = (ORS_PROFILE, round(lat1,4), round(lon1,4), round(lat2,4), round(lon2,4))
@@ -473,8 +476,72 @@ def load_static_reference(gc):
 # ---------------------------------------------------------
 # 3. OR-TOOLS ENGINE  (fleet-cap aware)
 # ---------------------------------------------------------
-def solve_with_ortools(df, df_trucks, src, available_fleet):
-    print("🚀 Generating Options (Smart Filter + Fleet Count Constraints)...")
+def _haversine_km_orders(o_a, o_b):
+    r = 6371
+    l1, ln1, l2, ln2 = map(np.radians, [o_a['lat'], o_a['lon'], o_b['lat'], o_b['lon']])
+    a = np.sin((l2 - l1) / 2) ** 2 + np.cos(l1) * np.cos(l2) * np.sin((ln2 - ln1) / 2) ** 2
+    return 2 * r * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+
+
+def _leg_haversine_feasible(o_from, o_to, d_km, vol_from_only=False):
+    """Quick check: leg o_from -> o_to within inter-hop rules (no fleet volume)."""
+    if d_km > MAX_INTER_HOP_KM:
+        return False
+    if d_km > (o_from['dist_out'] + o_to['dist_out']) * MAX_DETOUR_FACTOR:
+        return False
+    t_est = d_km / AVG_SPEED_KMPH
+    unload = round_up_025((o_from['vol'] / 20) / 100)
+    earliest_arr = o_from['w_start'] + timedelta(hours=unload + t_est)
+    if earliest_arr > o_to['w_end']:
+        return False
+    latest_arr = o_from['w_end'] + timedelta(hours=unload + t_est)
+    gap = 0.0
+    if latest_arr < o_to['w_start']:
+        gap = (o_to['w_start'] - latest_arr).total_seconds() / 3600
+    return gap <= MAX_TOTAL_HOLD_HOURS + 1.0
+
+
+def _prefetch_interhop_edges(edge_list, api_budget):
+    """Parallel ORS for uncached inter-hop edges; stops after api_budget new calls."""
+    if api_budget <= 0 or not edge_list:
+        return 0
+    to_fetch = []
+    for o_a, o_b in edge_list:
+        key = (ORS_PROFILE, round(o_a['lat'], 4), round(o_a['lon'], 4), round(o_b['lat'], 4), round(o_b['lon'], 4))
+        if key not in route_cache:
+            to_fetch.append((o_a, o_b))
+    if not to_fetch:
+        return 0
+    to_fetch = to_fetch[:api_budget]
+    workers = min(16, len(to_fetch))
+
+    def _one(pair):
+        o_a, o_b = pair
+        get_real_route(o_a['lat'], o_a['lon'], o_b['lat'], o_b['lon'])
+        return 1
+
+    fetched = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for n in pool.map(_one, to_fetch):
+            fetched += n
+    return fetched
+
+
+def _multi_trip_type(n_hops):
+    if n_hops == 2:
+        return 'Pair'
+    if n_hops == 3:
+        return 'Triple'
+    return f'{n_hops}-Stop'
+
+
+def solve_with_ortools(df, df_trucks, src, available_fleet, max_docks=None, max_hops=None):
+    max_docks = max(1, int(max_docks if max_docks is not None else MAX_DOCKS))
+    max_hops = max(1, min(MAX_ROUTE_HOPS, int(max_hops if max_hops is not None else 2)))
+    print(
+        f"🚀 Generating Options (max_docks={max_docks}, max_hops={max_hops}, "
+        f"fleet caps={available_fleet})..."
+    )
     # Build fleet availability counter (mutable, used both in solver & ad-hoc)
     fleet_available = {t: cnt for t, cnt in available_fleet.items() if cnt > 0}
     _t1 = time.perf_counter()
@@ -588,69 +655,153 @@ def solve_with_ortools(df, df_trucks, src, available_fleet):
     _t3 = time.perf_counter()
     print(f"  ⏱️  [Stage 2 — Direct candidates] {_t3-_t2:.1f}s | {len(candidates)} direct candidates")
     _stage_times['2_direct_candidates'] = _t3 - _t2
-    # --- MILK RUNS ---
-    print(f"   Scanning Pairs (Filtering > 24h & Fleet Cap)...")
-    promising_pairs = []
-    MAX_FLEET_CAP = df_trucks['cap'].max()
-    for i in range(len(base_orders)):
-        for j in range(len(base_orders)):
-            if i == j: continue
-            o1, o2 = base_orders[i], base_orders[j]
-            if (o1['vol'] + o2['vol'])/20 > MAX_FLEET_CAP: continue
-            R = 6371
-            l1,ln1,l2,ln2 = map(np.radians,[o1['lat'],o1['lon'],o2['lat'],o2['lon']])
-            a = np.sin((l2-l1)/2)**2 + np.cos(l1)*np.cos(l2)*np.sin((ln2-ln1)/2)**2
-            d = 2 * R * np.arctan2(np.sqrt(a), np.sqrt(1-a))
-            if d > MAX_INTER_HOP_KM: continue
-            if d > (o1['dist_out'] + o2['dist_out']) * MAX_DETOUR_FACTOR: continue
-            t_est    = d / AVG_SPEED_KMPH
-            unload_1 = round_up_025((o1['vol']/20) / 100)
-            earliest_arr_2 = o1['w_start'] + timedelta(hours=unload_1 + t_est)
-            if earliest_arr_2 > o2['w_end']: continue
-            latest_arr_2 = o1['w_end'] + timedelta(hours=unload_1 + t_est)
-            gap = 0
-            if latest_arr_2 < o2['w_start']:
-                gap = (o2['w_start'] - latest_arr_2).total_seconds() / 3600
-            if gap > MAX_TOTAL_HOLD_HOURS + 1.0: continue
-            promising_pairs.append((d, i, j))
     _t4 = time.perf_counter()
-    print(f"  ⏱️  [Stage 3 — Haversine pre-filter] {_t4-_t3:.1f}s | {len(promising_pairs)} pairs")
-    _stage_times['3_haversine_prefilter'] = _t4 - _t3
-    _pair_before = len(candidates)
-    promising_pairs.sort(key=lambda x: x[0])
-    for _d, i, j in promising_pairs[:MAX_API_CALLS_FOR_PAIRS]:
-        o1, o2 = base_orders[i], base_orders[j]
-        leg = get_real_route(o1['lat'], o1['lon'], o2['lat'], o2['lon'])
-        inter_t, inter_dist = leg['duration_hrs'], leg['dist_km']
-        vol = o1['vol'] + o2['vol']
-        req_totes = vol / 20
-        max_ft = min(o1['max_ft'], o2['max_ft'])
-        opts = df_trucks[(df_trucks['cap'] >= req_totes) & (df_trucks['size_int'] <= max_ft)].sort_values('cap')
-        if opts.empty:
-            opts = df_trucks[df_trucks['size_int'] <= max_ft].sort_values('cap', ascending=False)
-            if opts.empty or req_totes - opts.iloc[0]['cap'] > 15:
+    _multi_before = len(candidates)
+    MAX_FLEET_CAP = df_trucks['cap'].max()
+    n_orders = len(base_orders)
+
+    if max_hops < 2:
+        print("   Skipping milk-runs (max_hops=1, direct trips only).")
+        chains_by_hops = {}
+    else:
+        # ── Stage 3a: Haversine chain search (extend 2-stop → up to max_hops) ──
+        print(f"   Building milk-run chains (2–{max_hops} stops, Haversine pre-filter)...")
+        chains = []
+        for i in range(n_orders):
+            for j in range(n_orders):
+                if i == j:
+                    continue
+                o1, o2 = base_orders[i], base_orders[j]
+                d = _haversine_km_orders(o1, o2)
+                if not _leg_haversine_feasible(o1, o2, d):
+                    continue
+                if (o1['vol'] + o2['vol']) / 20 > MAX_FLEET_CAP:
+                    continue
+                chains.append((d, (i, j)))
+        cap2 = _CHAIN_CAPS.get(2, 2000)
+        chains.sort(key=lambda x: x[0])
+        chains = chains[:cap2]
+        chains_by_hops = {2: [c[1] for c in chains]}
+
+        for hop_count in range(3, max_hops + 1):
+            prev = chains_by_hops.get(hop_count - 1, [])
+            if not prev:
+                break
+            extended = []
+            for score, chain in ((0, c) for c in prev):
+                last = chain[-1]
+                o_last = base_orders[last]
+                for nxt in range(n_orders):
+                    if nxt in chain:
+                        continue
+                    o_nxt = base_orders[nxt]
+                    vol = sum(base_orders[ix]['vol'] for ix in chain) + o_nxt['vol']
+                    if vol / 20 > MAX_FLEET_CAP:
+                        continue
+                    d = _haversine_km_orders(o_last, o_nxt)
+                    if not _leg_haversine_feasible(o_last, o_nxt, d):
+                        continue
+                    leg_score = sum(
+                        _haversine_km_orders(base_orders[chain[k]], base_orders[chain[k + 1]])
+                        for k in range(len(chain) - 1)
+                    ) + d
+                    extended.append((leg_score, chain + (nxt,)))
+            cap = _CHAIN_CAPS.get(hop_count, 300)
+            extended.sort(key=lambda x: x[0])
+            chains_by_hops[hop_count] = [e[1] for e in extended[:cap]]
+            print(f"      {hop_count}-stop chains kept: {len(chains_by_hops[hop_count])}")
+
+        _t3a = time.perf_counter()
+        print(f"  ⏱️  [Stage 3 — Haversine chains] {_t3a-_t4:.1f}s")
+
+        # ── Stage 3b: Dedupe inter-hop edges, prefetch ORS within shared budget ──
+        edge_set = []
+        seen_edge = set()
+        for hop_count in range(2, max_hops + 1):
+            for chain in chains_by_hops.get(hop_count, []):
+                for k in range(len(chain) - 1):
+                    o_a, o_b = base_orders[chain[k]], base_orders[chain[k + 1]]
+                    ek = (
+                        round(o_a['lat'], 4), round(o_a['lon'], 4),
+                        round(o_b['lat'], 4), round(o_b['lon'], 4),
+                    )
+                    if ek not in seen_edge:
+                        seen_edge.add(ek)
+                        edge_set.append((o_a, o_b))
+        api_budget = MAX_API_CALLS_FOR_PAIRS
+        fetched = _prefetch_interhop_edges(edge_set, api_budget)
+        print(
+            f"  ⏱️  [Stage 4 — Inter-hop ORS] {time.perf_counter()-_t3a:.1f}s | "
+            f"{fetched} new legs fetched ({len(edge_set)} unique edges, budget {api_budget})"
+        )
+
+        # ── Stage 4b: Build solver candidates from chains (uses route_cache) ──
+        built = 0
+        all_chains = []
+        for hop_count in range(2, max_hops + 1):
+            for chain in chains_by_hops.get(hop_count, []):
+                score = sum(
+                    _haversine_km_orders(base_orders[chain[k]], base_orders[chain[k + 1]])
+                    for k in range(len(chain) - 1)
+                )
+                all_chains.append((score, chain))
+        all_chains.sort(key=lambda x: x[0])
+
+        for _score, chain in all_chains:
+            if built >= _MAX_MULTI_CANDIDATES:
+                break
+            orders = [base_orders[ix] for ix in chain]
+            n_hops = len(chain)
+            inter_times = []
+            inter_dists = []
+            for k in range(n_hops - 1):
+                leg = get_real_route(
+                    orders[k]['lat'], orders[k]['lon'],
+                    orders[k + 1]['lat'], orders[k + 1]['lon'],
+                )
+                inter_times.append(leg['duration_hrs'])
+                inter_dists.append(leg['dist_km'])
+            vol = sum(o['vol'] for o in orders)
+            req_totes = vol / 20
+            max_ft = min(o['max_ft'] for o in orders)
+            opts = df_trucks[(df_trucks['cap'] >= req_totes) & (df_trucks['size_int'] <= max_ft)].sort_values('cap')
+            if opts.empty:
+                opts = df_trucks[df_trucks['size_int'] <= max_ft].sort_values('cap', ascending=False)
+                if opts.empty or req_totes - opts.iloc[0]['cap'] > 15:
+                    continue
+            truck = opts.iloc[0]['type']
+            if truck not in fleet_available:
                 continue
-        truck = opts.iloc[0]['type']
-        if truck not in fleet_available:
-            continue
-        unload_1 = round_up_025((o1['vol']/20) / 100)
-        unload_2 = round_up_025((o2['vol']/20) / 100)
-        load_hrs = round_up_025(req_totes / 100)
-        tot_dur = load_hrs + o1['transit_out'] + unload_1 + inter_t + unload_2 + o2['transit_ret']
-        if tot_dur > 24.0:
-            continue
-        candidates.append({
-            'type': 'Pair', 'ids': [i, j], 'n_hops': 2,
-            'hop_windows': [(o1['w_start'], o1['w_end']), (o2['w_start'], o2['w_end'])],
-            'inter_times': [inter_t], 'unloads': [unload_1, unload_2],
-            'transit_1': o1['transit_out'], 'transit_ret': o2['transit_ret'],
-            'truck': truck, 'load_hrs': load_hrs, 'vol': vol,
-            'dist': o1['dist_out'] + inter_dist + o2['dist_ret'],
-            'route_desc': f"{o1['id']} + {o2['id']}",
-        })
+            unloads = [round_up_025((o['vol'] / 20) / 100) for o in orders]
+            load_hrs = round_up_025(req_totes / 100)
+            tot_dur = (
+                load_hrs + orders[0]['transit_out'] + sum(unloads[:-1])
+                + sum(inter_times) + unloads[-1] + orders[-1]['transit_ret']
+            )
+            if tot_dur > 24.0:
+                continue
+            candidates.append({
+                'type': _multi_trip_type(n_hops),
+                'ids': list(chain),
+                'n_hops': n_hops,
+                'hop_windows': [(o['w_start'], o['w_end']) for o in orders],
+                'inter_times': inter_times,
+                'unloads': unloads,
+                'transit_1': orders[0]['transit_out'],
+                'transit_ret': orders[-1]['transit_ret'],
+                'truck': truck,
+                'load_hrs': load_hrs,
+                'vol': vol,
+                'dist': orders[0]['dist_out'] + sum(inter_dists) + orders[-1]['dist_ret'],
+                'route_desc': ' + '.join(o['id'] for o in orders),
+            })
+            built += 1
+        print(f"   Multi-hop candidates added: {built} (cap {_MAX_MULTI_CANDIDATES}).")
+
     _t5 = time.perf_counter()
-    _pair_added = len(candidates) - _pair_before
-    print(f"  ⏱️  [Stage 4 — ORS inter-hop calls] {_t5-_t4:.1f}s | {_pair_added} pair/milk-run candidates added")
+    _multi_added = len(candidates) - _multi_before
+    print(f"  ⏱️  [Stage 3–4 — Milk runs total] {_t5-_t4:.1f}s | {_multi_added} multi-stop candidates")
+    _stage_times['3_haversine_prefilter'] = _t5 - _t4
     _stage_times['4_ors_interhop_calls'] = _t5 - _t4
     # --- CP-SAT SOLVER ---
     print(f"   Solving with {len(candidates)} options across fleet: {fleet_available}...")
@@ -731,7 +882,7 @@ def solve_with_ortools(df, df_trucks, src, available_fleet):
         interval = model.NewOptionalFixedSizeIntervalVar(vpt_var, load_mins, x[c_idx], f'dock_{c_idx}')
         intervals.append(interval)
         demands.append(1)
-    model.AddCumulative(intervals, demands, MAX_DOCKS)
+    model.AddCumulative(intervals, demands, max_docks)
     hold_terms = []
     for c_idx in all_vars:
         raw_hold = all_vars[c_idx]['hold']
@@ -791,7 +942,7 @@ def solve_with_ortools(df, df_trucks, src, available_fleet):
                 hop_cols = {}
                 for k, at in enumerate(arr_all, 1):
                     hop_cols[f'hop{k}'] = round_to_nearest_15(at)
-                for k in range(len(arr_all) + 1, MAX_HOPS + 1):
+                for k in range(len(arr_all) + 1, MAX_ROUTE_HOPS + 1):
                     hop_cols[f'hop{k}'] = None
                 results.append({
                     'type':  c['type'],
