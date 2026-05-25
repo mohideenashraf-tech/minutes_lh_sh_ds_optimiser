@@ -388,7 +388,9 @@
     document.getElementById("refreshDataBtn").addEventListener("click", async function() {
       setStatus(dataStatus, "Refreshing Raw_1 from Google Sheets…");
       try {
-        await fetch("/api/refresh-data", { method: "POST" });
+        const res = await fetch("/api/refresh-data", { method: "POST" });
+        const data = await res.json().catch(function() { return {}; });
+        if (!res.ok) throw new Error(data.detail || "Refresh failed (" + res.status + ")");
         await loadSources();
         setStatus(dataStatus, "Raw_1 refreshed.", "ok");
       } catch (e) {
@@ -505,6 +507,17 @@
 
     async function init() {
       try {
+        const verRes = await fetch("/api/ui-version");
+        if (verRes.ok) {
+          const ver = await verRes.json();
+          if (!ver.has_live_data_section) {
+            setStatus(
+              dataStatus,
+              "Server is still on the old UI build. Wait for Render deploy or hard-refresh (Ctrl+Shift+R).",
+              "error"
+            );
+          }
+        }
         const res = await fetch("/api/config");
         const cfg = await res.json();
         if (!res.ok) throw new Error(cfg.detail || "Config failed");

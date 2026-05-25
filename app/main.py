@@ -66,7 +66,22 @@ def _require_sheets() -> None:
 async def index():
     if not INDEX_HTML.exists():
         raise HTTPException(500, "UI file missing at app/static/index.html")
-    return FileResponse(INDEX_HTML, media_type="text/html")
+    return FileResponse(
+        INDEX_HTML,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.get("/api/ui-version")
+async def ui_version():
+    """Lets the browser confirm which UI bundle the server is serving."""
+    html = INDEX_HTML.read_text(encoding="utf-8") if INDEX_HTML.exists() else ""
+    return {
+        "commit_hint": "sheets-v1.1",
+        "has_live_data_section": "Live data" in html and "csvFile" not in html,
+        "data_source": "google_sheets",
+    }
 
 
 @app.get("/api/config")
