@@ -68,6 +68,43 @@
       font-size: 0.95rem;
     }
     input[type="checkbox"] { margin-right: 0.4rem; }
+    .source-checkboxes {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem;
+      background: #ffffff;
+    }
+    .source-checkboxes .status { margin: 0.35rem 0; }
+    .source-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
+      padding: 0.45rem 0.35rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+    .source-option:last-child { border-bottom: none; }
+    .source-option:hover { background: rgba(37, 99, 235, 0.06); }
+    .source-option input[type="checkbox"] { margin-top: 0.15rem; flex-shrink: 0; }
+    .source-option-meta { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
+    .source-actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 0.45rem;
+    }
+    .btn-link {
+      padding: 0;
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-link:hover { color: var(--accent-hover); text-decoration: underline; }
     .window-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
     .window-grid .full { grid-column: 1 / -1; }
     .fleet-item label { font-size: 0.8rem; }
@@ -189,7 +226,7 @@
 <body>
   <header>
     <h1>Spillover Milkrun Optimizer</h1>
-    <p>Demand from Raw_1 (Source Grid + XD Grid per source WH) · live Google Sheets · OR-Tools routing</p>
+    <p>Demand from live grid pendency (Raw_1) · Source Grid + XD Grid · OR-Tools routing</p>
     <div class="header-filters">
       <div>
         <label for="maxTotes">Max box count per destination</label>
@@ -210,16 +247,34 @@
   <div class="layout">
     <aside class="left">
       <section>
-        <h2>Live data</h2>
-        <p class="status" style="margin-top:0;font-size:0.8rem">Raw_1 is read from Google Sheets. Rows flagged Source Grid or XD Grid are pivoted into demand for the source you pick below.</p>
-        <p class="status" id="dataStatus">Connecting to Google Sheets…</p>
-        <button type="button" class="btn-secondary" id="refreshDataBtn">Refresh Raw_1 from sheet</button>
+        <h2>Live grid pendency</h2>
+        <p class="status" style="margin-top:0;font-size:0.8rem">Demand is read from the <strong>Raw_1</strong> tab in the live grid pendency Google Sheet. Rows flagged Source Grid or XD Grid are pivoted for the sources you select below.</p>
+        <p class="status" id="liveDataStatus">Connecting…</p>
+        <div class="btn-row" style="margin-top:0.5rem">
+          <button type="button" class="btn-secondary" id="refreshLiveBtn">Refresh Raw_1</button>
+        </div>
+        <details style="margin-top:0.75rem">
+          <summary style="cursor:pointer;font-size:0.85rem;color:var(--muted)">Upload fallback (optional)</summary>
+          <p class="status" style="margin-top:0.5rem;font-size:0.8rem">Use only when the live sheet is unavailable or for offline testing.</p>
+          <label for="csvFile">Raw_1 file</label>
+          <input type="file" id="csvFile" accept=".csv,.xlsx,.xls,.xlsm" />
+          <p class="status" id="fileStatus"></p>
+          <div class="btn-row" style="margin-top:0.5rem">
+            <button type="button" class="btn-secondary" id="useSampleBtn">Use sample data</button>
+          </div>
+        </details>
       </section>
 
       <section>
         <h2>Source warehouse</h2>
-        <label for="sourceSelect">Source location</label>
-        <select id="sourceSelect"><option value="">Loading sources…</option></select>
+        <label>Source locations <span style="font-weight:400;color:var(--muted)">(select one or more)</span></label>
+        <div class="source-actions">
+          <button type="button" class="btn-link" id="sourceSelectAll">Select all</button>
+          <button type="button" class="btn-link" id="sourceClearAll">Clear all</button>
+        </div>
+        <div id="sourceCheckboxes" class="source-checkboxes">
+          <p class="status">Loading sources…</p>
+        </div>
       </section>
 
       <section>
@@ -285,7 +340,7 @@
 
     <main class="right">
       <div id="resultsEmpty" class="empty-state">
-        <p>Choose a source and fleet, then run the optimizer.</p>
+        <p>Choose one or more sources and fleet, then run the optimizer.</p>
         <p>Routes and schedule will appear here.</p>
       </div>
 
@@ -303,7 +358,7 @@
             <table id="routesTable">
               <thead>
                 <tr>
-                  <th>#</th><th>Tag</th><th>Type</th><th>Fleet</th><th>Route</th>
+                  <th>#</th><th>Source</th><th>Tag</th><th>Type</th><th>Fleet</th><th>Route</th>
                   <th>Hop landings</th><th>Connections (totes · fleet)</th>
                   <th>Total totes</th><th>VPT</th><th>Dispatch</th>
                 </tr>
@@ -322,7 +377,7 @@
             <table id="rotationTable">
               <thead>
                 <tr>
-                  <th>Truck ID</th><th>Type</th><th>Tag</th><th>Trip type</th>
+                  <th>Truck ID</th><th>Source</th><th>Type</th><th>Tag</th><th>Trip type</th>
                   <th>Route</th><th>VPT</th><th>Return</th>
                 </tr>
               </thead>
@@ -334,7 +389,7 @@
         <div id="panel-demand" class="panel">
           <div style="overflow:auto; max-height: calc(100vh - 280px);">
             <table id="demandTable">
-              <thead><tr><th>Destination</th><th>Box count</th><th>Lat</th><th>Lon</th></tr></thead>
+              <thead><tr><th>Source</th><th>Destination</th><th>Box count</th><th>Lat</th><th>Lon</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -349,8 +404,10 @@
 
   <script>
     let FLEET_SIZES = [];
-    const dataStatus = document.getElementById("dataStatus");
-    const sourceSelect = document.getElementById("sourceSelect");
+    let uploadId = "live";
+    const liveDataStatus = document.getElementById("liveDataStatus");
+    const fileStatus = document.getElementById("fileStatus");
+    const sourceCheckboxes = document.getElementById("sourceCheckboxes");
     const runBtn = document.getElementById("runBtn");
     const runStatus = document.getElementById("runStatus");
     const fleetGrid = document.getElementById("fleetGrid");
@@ -404,38 +461,132 @@
       });
     }
 
-    async function loadSources() {
+    function getSelectedSources() {
+      return Array.from(sourceCheckboxes.querySelectorAll("input[type=checkbox]:checked"))
+        .map(function(cb) { return cb.value; });
+    }
+
+    function setAllSourcesChecked(checked) {
+      sourceCheckboxes.querySelectorAll("input[type=checkbox]").forEach(function(cb) {
+        cb.checked = checked;
+      });
+    }
+
+    async function loadLiveData(refresh) {
       try {
-        const res = await fetch("/api/sources");
+        const url = refresh ? "/api/refresh" : "/api/live-data";
+        const res = await fetch(url, refresh ? { method: "POST" } : undefined);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to load sources");
-        sourceSelect.innerHTML = "";
-        if (!data.sources.length) {
-          sourceSelect.innerHTML = "<option value=\"\">No Source Grid warehouses found</option>";
-          return;
+        if (!res.ok) throw new Error(data.detail || "Could not load live data");
+        uploadId = data.upload_id || "live";
+        const title = data.spreadsheet_title ? " · " + data.spreadsheet_title : "";
+        if (data.mode === "sample_fallback") {
+          setStatus(liveDataStatus, data.message + " (" + data.rows.toLocaleString() + " rows, " + data.sources + " sources).", "error");
+        } else {
+          setStatus(
+            liveDataStatus,
+            "Live Raw_1" + title + ": " + data.rows.toLocaleString() + " rows, " + data.sources + " source warehouses" +
+            (data.fetched_at ? " · updated " + new Date(data.fetched_at).toLocaleTimeString() : "") + ".",
+            "ok"
+          );
         }
-        data.sources.forEach(function(s) {
-          const opt = document.createElement("option");
-          opt.value = s.id;
-          opt.textContent = s.id + " (" + s.box_count.toLocaleString() + " boxes, " + s.next_stops + " next stops)";
-          sourceSelect.appendChild(opt);
-        });
+        return data;
       } catch (e) {
-        sourceSelect.innerHTML = "<option value=\"\">Error loading sources</option>";
-        setStatus(dataStatus, e.message, "error");
+        setStatus(liveDataStatus, e.message, "error");
+        throw e;
       }
     }
 
-    document.getElementById("refreshDataBtn").addEventListener("click", async function() {
-      setStatus(dataStatus, "Refreshing Raw_1 from Google Sheets…");
+    async function loadSources(id, refresh) {
+      const uid = id != null ? id : uploadId;
       try {
-        const res = await fetch("/api/refresh-data", { method: "POST" });
-        const data = await res.json().catch(function() { return {}; });
-        if (!res.ok) throw new Error(data.detail || "Refresh failed (" + res.status + ")");
-        await loadSources();
-        setStatus(dataStatus, "Raw_1 refreshed.", "ok");
+        const qs = "upload_id=" + encodeURIComponent(uid) + (refresh ? "&refresh=1" : "");
+        const res = await fetch("/api/sources?" + qs);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to load sources");
+        uploadId = data.upload_id || uid;
+        sourceCheckboxes.innerHTML = "";
+        if (!data.sources.length) {
+          sourceCheckboxes.innerHTML = "<p class=\"status\">No Source Grid warehouses found</p>";
+          return;
+        }
+        data.sources.forEach(function(s, idx) {
+          const label = document.createElement("label");
+          label.className = "source-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.name = "sourceWarehouse";
+          cb.value = s.id;
+          cb.checked = idx === 0;
+          const text = document.createElement("span");
+          text.innerHTML =
+            "<strong>" + s.id + "</strong>" +
+            "<div class=\"source-option-meta\">" +
+            s.box_count.toLocaleString() + " boxes · " + s.next_stops + " next stops · " +
+            s.destinations + " destinations" +
+            "</div>";
+          label.appendChild(cb);
+          label.appendChild(text);
+          sourceCheckboxes.appendChild(label);
+        });
       } catch (e) {
-        setStatus(dataStatus, e.message, "error");
+        sourceCheckboxes.innerHTML = "<p class=\"status error\">Error loading sources</p>";
+        setStatus(fileStatus, e.message, "error");
+      }
+    }
+
+    document.getElementById("sourceSelectAll").addEventListener("click", function() {
+      setAllSourcesChecked(true);
+    });
+    document.getElementById("sourceClearAll").addEventListener("click", function() {
+      setAllSourcesChecked(false);
+    });
+
+    document.getElementById("refreshLiveBtn").addEventListener("click", async function() {
+      const btn = document.getElementById("refreshLiveBtn");
+      btn.disabled = true;
+      setStatus(liveDataStatus, "Refreshing Raw_1 from Google Sheets…");
+      try {
+        await loadLiveData(true);
+        await loadSources("live", false);
+      } catch (e) {
+        setStatus(liveDataStatus, e.message, "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("csvFile").addEventListener("change", async function(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      setStatus(fileStatus, "Uploading " + file.name + "…");
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Upload failed");
+        uploadId = data.upload_id;
+        await loadSources(uploadId);
+        setStatus(
+          fileStatus,
+          "Loaded " + data.rows.toLocaleString() + " rows from " + data.filename + " (upload mode).",
+          "ok"
+        );
+      } catch (e) {
+        setStatus(fileStatus, e.message, "error");
+      }
+    });
+
+    document.getElementById("useSampleBtn").addEventListener("click", async function() {
+      uploadId = "sample";
+      document.getElementById("csvFile").value = "";
+      setStatus(fileStatus, "Loading sample data…");
+      try {
+        await loadSources("sample");
+        setStatus(fileStatus, "Using bundled sample Raw_1 (offline mode).", "ok");
+      } catch (e) {
+        setStatus(fileStatus, e.message, "error");
       }
     });
 
@@ -476,11 +627,9 @@
       }).join("");
     }
 
-    function renderDockChart(util) {
-      const panel = document.getElementById("dockChartPanel");
+    function renderDockChart(util, title) {
       if (!util || !util.bins || !util.bins.length) {
-        panel.innerHTML = "<p class=\"status\">No dock loading intervals in the schedule.</p>";
-        return;
+        return "<p class=\"status\">" + (title ? title + ": " : "") + "No dock loading intervals in the schedule.</p>";
       }
       const bins = util.bins;
       const maxD = util.max_docks || 1;
@@ -523,7 +672,10 @@
           "<text x=\"" + (padL - 6) + "\" y=\"" + (yy + 4) + "\" text-anchor=\"end\" font-size=\"10\" fill=\"#64748b\">" + v + "</text>"
         );
       }
-      panel.innerHTML =
+      const heading = title
+        ? "<h4 class=\"dock-section-title\" style=\"margin-top:1rem\">" + title + "</h4>"
+        : "";
+      return heading +
         "<div class=\"dock-chart-meta\">" +
         "<span>Peak: <strong>" + util.peak_docks_used + "</strong> / " + maxD + " docks" +
         (util.peak_time_label ? " at <strong>" + util.peak_time_label + "</strong>" : "") + "</span>" +
@@ -544,6 +696,18 @@
         "<span><i class=\"dock-legend-line\"></i> Max docks limit (" + maxD + ")</span>" +
         "</div>" +
         "<p class=\"status\" style=\"margin-top:0.5rem\">Each trip uses one dock from vehicle placement time until loading finishes at the source.</p>";
+    }
+
+    function renderDockCharts(data) {
+      const panel = document.getElementById("dockChartPanel");
+      const bySource = data.dock_utilization_by_source;
+      if (bySource && Object.keys(bySource).length > 1) {
+        panel.innerHTML = Object.keys(bySource).map(function(src) {
+          return renderDockChart(bySource[src], src);
+        }).join("");
+        return;
+      }
+      panel.innerHTML = renderDockChart(data.dock_utilization);
     }
 
     function renderResults(data) {
@@ -572,7 +736,7 @@
         const legs = t.trip_legs || [];
         const totalTotes = t.totes != null ? t.totes : (t.volume != null ? Math.round(t.volume / 20) : "");
         tr.innerHTML =
-          "<td>" + (i + 1) + "</td><td>" + tag + "</td><td>" + type + "</td>" +
+          "<td>" + (i + 1) + "</td><td>" + (t.source_warehouse || data.source_warehouse || "") + "</td><td>" + tag + "</td><td>" + type + "</td>" +
           "<td>" + (t.truck || t.truck_type || (legs[0] && legs[0].fleet) || "") + "</td>" +
           "<td>" + (t.route || "") + "</td>" +
           "<td class=\"leg-detail\">" + formatHopLandings(legs) + "</td>" +
@@ -588,7 +752,7 @@
       data.fleet_rotation.forEach(function(r) {
         const tr = document.createElement("tr");
         tr.innerHTML =
-          "<td>" + r.physical_truck_id + "</td><td>" + r.fleet_type + "</td>" +
+          "<td>" + r.physical_truck_id + "</td><td>" + (r.source_warehouse || data.source_warehouse || "") + "</td><td>" + r.fleet_type + "</td>" +
           "<td>" + (r.trip_tag || "") + "</td><td>" + (r.trip_type || "") + "</td>" +
           "<td>" + (r.route || "") + "</td><td>" + (r.vpt || "") + "</td><td>" + (r.return_time || "") + "</td>";
         rotBody.appendChild(tr);
@@ -599,20 +763,20 @@
       (data.demand_preview || []).forEach(function(d) {
         const tr = document.createElement("tr");
         tr.innerHTML =
-          "<td>" + d.id + "</td><td>" + Math.round(d.box_count) + "</td>" +
+          "<td>" + (d.source_warehouse || data.source_warehouse || "") + "</td><td>" + d.id + "</td><td>" + Math.round(d.box_count) + "</td>" +
           "<td>" + Number(d.lat).toFixed(4) + "</td><td>" + Number(d.lon).toFixed(4) + "</td>";
         demBody.appendChild(tr);
       });
 
-      renderDockChart(data.dock_utilization);
+      renderDockCharts(data);
 
       document.getElementById("logBox").textContent = (data.logs || []).join("\n");
     }
 
     runBtn.addEventListener("click", async function() {
-      const source = sourceSelect.value;
-      if (!source) {
-        setStatus(runStatus, "Select a source warehouse.", "error");
+      const sources = getSelectedSources();
+      if (!sources.length) {
+        setStatus(runStatus, "Select at least one source warehouse.", "error");
         return;
       }
       const fleet = {};
@@ -620,13 +784,15 @@
         fleet[ft] = parseInt(document.getElementById("fleet_" + ft).value || "0", 10);
       });
       runBtn.disabled = true;
-      runStatus.innerHTML = "<span class=\"spinner\"></span> Running OR-Tools solver (may take 1–2 min)…";
+      const sourceLabel = sources.length === 1 ? sources[0] : sources.length + " sources";
+      runStatus.innerHTML = "<span class=\"spinner\"></span> Running OR-Tools solver for " + sourceLabel + " (may take 1–2 min each)…";
       try {
         const res = await fetch("/api/optimize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            source_warehouse: source,
+            upload_id: uploadId,
+            source_warehouses: sources,
             fleet: fleet,
             max_source_km: parseFloat(document.getElementById("maxKm").value),
             max_totes: parseFloat(document.getElementById("maxTotes").value),
@@ -640,7 +806,11 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Optimization failed");
         renderResults(data);
-        setStatus(runStatus, "Done — " + (data.summary.primary_trips + data.summary.adhoc_trips) + " trips for " + source + ".", "ok");
+        setStatus(
+          runStatus,
+          "Done — " + (data.summary.primary_trips + data.summary.adhoc_trips) + " trips across " + sources.length + " source(s).",
+          "ok"
+        );
       } catch (e) {
         setStatus(runStatus, e.message, "error");
       } finally {
@@ -655,8 +825,8 @@
           const ver = await verRes.json();
           if (!ver.has_live_data_section) {
             setStatus(
-              dataStatus,
-              "Server is still on the old UI build. Wait for Render deploy or hard-refresh (Ctrl+Shift+R).",
+              liveDataStatus,
+              "Server is still on an old UI build. Wait for deploy or hard-refresh (Ctrl+Shift+R).",
               "error"
             );
           }
@@ -682,24 +852,10 @@
         if (cfg.default_dbd_future_hrs != null) {
           document.getElementById("dbdFuture").value = String(cfg.default_dbd_future_hrs);
         }
-        const sheet = cfg.sheets || {};
-        if (sheet.ok) {
-          const title = sheet.spreadsheet_title ? " — " + sheet.spreadsheet_title : "";
-          setStatus(
-            dataStatus,
-            "Connected to Google Sheets tab \"" + (cfg.raw_sheet || "Raw_1") + "\"" + title + ".",
-            "ok"
-          );
-        } else {
-          setStatus(
-            dataStatus,
-            sheet.error || "Google Sheets not configured on server (GOOGLE_SERVICE_ACCOUNT_JSON).",
-            "error"
-          );
-        }
-        await loadSources();
+        await loadLiveData(false);
+        await loadSources("live");
       } catch (e) {
-        setStatus(dataStatus, e.message, "error");
+        setStatus(liveDataStatus, e.message, "error");
       }
     }
 

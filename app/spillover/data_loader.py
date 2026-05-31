@@ -1,26 +1,50 @@
-"""Source Grid + XD Grid demand loading from live Google Sheets Raw_1 tab."""
+"""Source Grid + XD Grid demand loading from Raw_1 (live Google Sheet or CSV)."""
 from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import pytz
 
-from app.spillover.gsheets_client import RAW_SHEET, fetch_raw_1
 from app.spillover.landing_windows import DEFAULT_LANDING, LandingWindowConfig, apply_landing_windows
 from app.spillover.static_ref import load_static_reference
 
 IST = pytz.timezone("Asia/Kolkata")
 
 
-def load_raw_from_sheets() -> pd.DataFrame:
-    """Load Raw_1 from the configured Google Sheet."""
-    return fetch_raw_1()
+def normalize_raw_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out.columns = [str(c).strip() for c in out.columns]
+    if "Count_Box_ID" in out.columns:
+        out["Count_Box_ID"] = pd.to_numeric(out["Count_Box_ID"], errors="coerce").fillna(0)
+    if "Quantity" in out.columns:
+        out["Quantity"] = pd.to_numeric(out["Quantity"], errors="coerce").fillna(0)
+    return out
 
 
-def list_source_warehouses(df: pd.DataFrame | None = None) -> list[dict]:
-    df = df if df is not None else load_raw_from_sheets()
+def load_raw_file(path: Path) -> pd.DataFrame:
+    path = Path(path)
+    if path.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
+        df = pd.read_excel(path, engine="openpyxl")
+    else:
+        df = pd.read_csv(path, low_memory=False)
+    return normalize_raw_dataframe(df)
+
+
+def fetch_live_raw(*, use_cache: bool = True) -> pd.DataFrame:
+    """Load Raw_1 from the live grid pendency Google Sheet."""
+    from app.spillover.gsheets_client import fetch_raw_1
+
+    return normalize_raw_dataframe(fetch_raw_1(use_cache=use_cache))
+
+
+def list_source_warehouses(df: pd.DataFrame | None = None, *, csv_path: Path | None = None) -> list[dict]:
+    if df is None:
+        if csv_path is None:
+            raise ValueError("csv_path is required when df is not provided")
+        df = load_raw_file(csv_path)
     sg = df[df["box_final_status"] == "Source Grid"].copy()
     if sg.empty:
         return []
@@ -109,7 +133,9 @@ def pivot_xd_grid(df: pd.DataFrame) -> pd.DataFrame:
 
 def build_demand(
     source_warehouse: str,
+    csv_path: Path | None = None,
     *,
+    raw_df: pd.DataFrame | None = None,
     max_source_km: float = 80.0,
     max_totes: float = 40.0,
     dbd_past_cutoff_hrs: float = 4.0,
@@ -117,20 +143,23 @@ def build_demand(
     landing: LandingWindowConfig | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """
-    Build per-source-warehouse demand from live Raw_1 (Google Sheets).
+    Build per-source-warehouse demand from Raw_1 (Source Grid + XD Grid pivots).
 
     Uses box_final_status:
       - Source Grid: source_warehouse → NextStop / destination_warehouse
       - XD Grid: NextStop → destination_warehouse (matched to that source's next stops)
-
-    Combines direct SG, SG×XD chained (min boxes per leg), and XD-only paths; then
-    max totes, landing windows, lat/lon, and max distance filters. Solver unchanged.
     """
     logs: list[str] = []
     landing = landing or DEFAULT_LANDING
 
-    df_raw = load_raw_from_sheets()
-    logs.append(f"Loaded {len(df_raw):,} rows from Google Sheet tab '{RAW_SHEET}'")
+    if raw_df is not None:
+        df_raw = normalize_raw_dataframe(raw_df)
+        logs.append(f"Loaded {len(df_raw):,} rows from live grid pendency sheet")
+    elif csv_path is not None:
+        df_raw = load_raw_file(csv_path)
+        logs.append(f"Loaded {len(df_raw):,} rows from {csv_path.name}")
+    else:
+        raise ValueError("Provide raw_df or csv_path.")
     df_raw = filter_rows_by_dbd_window(df_raw, dbd_past_cutoff_hrs, dbd_future_cutoff_hrs, logs)
     if df_raw.empty:
         raise ValueError("No rows remain after DBD filter.")

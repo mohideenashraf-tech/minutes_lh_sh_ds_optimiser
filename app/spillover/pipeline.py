@@ -5,6 +5,7 @@ import io
 import sys
 from contextlib import redirect_stdout
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -48,6 +49,8 @@ def run_optimization(
     source_warehouse: str,
     fleet: dict[str, int],
     *,
+    csv_path: Path | None = None,
+    raw_df: pd.DataFrame | None = None,
     max_source_km: float = 80.0,
     max_totes: float = 40.0,
     dbd_past_cutoff_hrs: float = 4.0,
@@ -61,6 +64,8 @@ def run_optimization(
     landing = landing or DEFAULT_LANDING
     demand, legs, demand_logs = build_demand(
         source_warehouse,
+        csv_path,
+        raw_df=raw_df,
         max_source_km=max_source_km,
         max_totes=max_totes,
         dbd_past_cutoff_hrs=dbd_past_cutoff_hrs,
@@ -136,6 +141,7 @@ def run_optimization(
 
     return {
         "source_warehouse": source_warehouse,
+        "source_warehouses": [source_warehouse],
         "source_coords": {"lat": src[0], "lon": src[1]},
         "destinations": int(len(demand)),
         "total_box_count": float(demand["box_count"].sum()),
@@ -165,4 +171,125 @@ def run_optimization(
             "unserviceable_count": len(unserviceable),
         },
         "logs": logs,
+    }
+
+
+def run_optimizations(
+    source_warehouses: list[str],
+    fleet: dict[str, int],
+    *,
+    csv_path: Path | None = None,
+    raw_df: pd.DataFrame | None = None,
+    **kwargs,
+) -> dict[str, Any]:
+    """Run optimisation for one or more source warehouses and merge results."""
+    sources = [s.strip() for s in source_warehouses if s and s.strip()]
+    if not sources:
+        raise ValueError("Select at least one source warehouse.")
+
+    seen: set[str] = set()
+    unique_sources: list[str] = []
+    for src in sources:
+        if src not in seen:
+            seen.add(src)
+            unique_sources.append(src)
+
+    if len(unique_sources) == 1:
+        return run_optimization(
+            unique_sources[0],
+            fleet,
+            csv_path=csv_path,
+            raw_df=raw_df,
+            **kwargs,
+        )
+
+    all_trips: list[dict] = []
+    all_rotation: list[dict] = []
+    all_demand: list[dict] = []
+    all_grid_legs: list[dict] = []
+    all_unserviceable: list[Any] = []
+    all_logs: list[str] = []
+    dock_by_source: dict[str, Any] = {}
+    results_by_source: list[dict[str, Any]] = []
+    agg_summary = {
+        "primary_trips": 0,
+        "adhoc_trips": 0,
+        "direct_trips": 0,
+        "pair_milk_runs": 0,
+        "triple_milk_runs": 0,
+        "physical_trucks": 0,
+        "unserviceable_count": 0,
+    }
+    total_destinations = 0
+    total_box_count = 0.0
+    landing_window: dict[str, Any] | None = None
+    solver_settings: dict[str, Any] | None = None
+
+    for src in unique_sources:
+        result = run_optimization(
+            src,
+            fleet,
+            csv_path=csv_path,
+            raw_df=raw_df,
+            **kwargs,
+        )
+        results_by_source.append(
+            {
+                "source_warehouse": src,
+                "summary": result["summary"],
+                "destinations": result["destinations"],
+                "total_box_count": result["total_box_count"],
+            }
+        )
+
+        for trip in result["trips"]:
+            row = dict(trip)
+            row["source_warehouse"] = src
+            all_trips.append(row)
+
+        for rot in result["fleet_rotation"]:
+            row = dict(rot)
+            row["source_warehouse"] = src
+            all_rotation.append(row)
+
+        for row in result.get("demand_preview", []):
+            demand_row = dict(row)
+            demand_row["source_warehouse"] = src
+            all_demand.append(demand_row)
+
+        all_grid_legs.extend(result.get("grid_legs", []))
+        all_unserviceable.extend(result.get("unserviceable", []))
+        all_logs.append(f"=== Source: {src} ===")
+        all_logs.extend(result.get("logs", []))
+        dock_by_source[src] = result.get("dock_utilization")
+
+        summary = result["summary"]
+        for key in agg_summary:
+            agg_summary[key] += int(summary.get(key, 0))
+        total_destinations += int(result["destinations"])
+        total_box_count += float(result["total_box_count"])
+
+        if landing_window is None:
+            landing_window = result.get("landing_window")
+        if solver_settings is None:
+            solver_settings = result.get("solver_settings")
+
+    return {
+        "source_warehouse": ", ".join(unique_sources),
+        "source_warehouses": unique_sources,
+        "source_coords": None,
+        "destinations": total_destinations,
+        "total_box_count": total_box_count,
+        "trips": all_trips,
+        "dock_utilization": dock_by_source.get(unique_sources[0]),
+        "dock_utilization_by_source": dock_by_source,
+        "fleet_rotation": all_rotation,
+        "unserviceable": all_unserviceable,
+        "grid_legs": all_grid_legs,
+        "demand_preview": all_demand,
+        "landing_window": landing_window or {},
+        "solver_settings": solver_settings or {},
+        "summary": agg_summary,
+        "results_by_source": results_by_source,
+        "logs": all_logs,
     }

@@ -99,6 +99,25 @@ def build_cache_from_csv(csv_path: Path) -> None:
 
 
 def load_static_reference() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    if STATIC_CACHE.exists():
+        df_sources = pd.read_excel(STATIC_CACHE, sheet_name="Sources", engine="openpyxl")
+        df_dests = pd.read_excel(STATIC_CACHE, sheet_name="Destinations", engine="openpyxl")
+        windows_df = pd.read_excel(STATIC_CACHE, sheet_name="Landing_Window", engine="openpyxl")
+        windows = {
+            str(r["Part"]).strip(): (str(r["Window Start"]).strip(), str(r["Window End"]).strip())
+            for _, r in windows_df.iterrows()
+            if str(r.get("Part", "")).strip()
+        }
+        for frame in (df_sources, df_dests):
+            if "Sources" in frame.columns:
+                frame.rename(columns={"Sources": "id"}, inplace=True)
+            if "Destinations" in frame.columns:
+                frame.rename(columns={"Destinations": "id"}, inplace=True)
+            frame["id"] = frame["id"].astype(str).str.strip()
+            frame["lat"] = pd.to_numeric(frame["lat"], errors="coerce")
+            frame["lon"] = pd.to_numeric(frame["lon"], errors="coerce")
+        return df_sources, df_dests, windows
+
     if sheets_configured():
         try:
             return fetch_static_reference()
@@ -116,8 +135,7 @@ def load_static_reference() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
             build_cache_from_csv(sample)
         else:
             raise FileNotFoundError(
-                "Google Sheets credentials not configured and no static_reference_cache.xlsx. "
-                "Set GOOGLE_SERVICE_ACCOUNT_JSON and share both spreadsheets with the service account."
+                "No static reference cache. Upload Raw_1 or place data/sample.csv on the server."
             )
     df_sources = pd.read_excel(STATIC_CACHE, sheet_name="Sources", engine="openpyxl")
     df_dests = pd.read_excel(STATIC_CACHE, sheet_name="Destinations", engine="openpyxl")
